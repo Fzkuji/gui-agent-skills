@@ -1,0 +1,37 @@
+{
+  "name": "wechat_send_message",
+  "description": "Send a message to a contact in WeChat",
+  "params": {
+    "contact": "Contact name (visible in chat list sidebar)",
+    "message": "Message text to send"
+  },
+  "steps": [
+    {
+      "id": "focus",
+      "action": "focus_app",
+      "app": "WeChat"
+    },
+    {
+      "id": "select_chat",
+      "action": "click",
+      "target": {"ocr": "{{contact}}", "x_max": 430},
+      "delay_after": 0.5,
+      "note": "Click contact in sidebar (x<430 = sidebar area)"
+    },
+    {
+      "id": "click_input",
+      "action": "click",
+      "target": {"window_calc": true, "app": "WeChat", "sidebar_width": 250, "bottom_offset": 80},
+      "delay_after": 0.3,
+      "note": "Click input field: center of chat area, near bottom of window"
+    },
+    {
+      "id": "type_and_send",
+      "action": "click_and_type",
+      "target": {"window_calc": true, "app": "WeChat", "sidebar_width": 250, "bottom_offset": 80},
+      "text": "{{message}}",
+      "clear_first": true,
+      "send": true
+    }
+  ]
+}

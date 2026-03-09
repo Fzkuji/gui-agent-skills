@@ -1,0 +1,14 @@
+# Template images (contain personal UI screenshots)
+templates/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Temp files
+/tmp/
+*.jpg
+*.png
