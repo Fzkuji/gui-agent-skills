@@ -1,91 +1,80 @@
 # Scene: Explore a New App
-# Goal: Understand an unknown app's UI for automation
+# Provides: understand an unknown app's UI for automation
+#
+# Interface:
+#   full_exploration(app) → app profile created, UI mapped
+#
+# Internal structure:
+#   full_exploration
+#   ├── ax_recon(app)        → element count, AX quality assessment
+#   ├── ocr_recon(app)       → text content & positions (if AX poor)
+#   ├── screenshot_recon()   → visual layout (if complex)
+#   └── create_profile(app)  → apps/{app}.json
 
 scene: app-explore
-goal: "Map an unfamiliar app's UI elements, layout, and interaction patterns"
+
+exports:
+  full_exploration:
+    params:
+      app: "App name to explore"
+    output: "App profile JSON + UI knowledge"
 
 meta_actions:
   full_exploration:
-    desc: "Complete recon of a new app"
-    params:
-      app: "App name"
     steps:
       - ref: "#ax_recon"
         params: { app: "{app}" }
       - ref: "#ocr_recon"
-        params: { app: "{app}" }
         condition: "ax_quality < 10 elements"
       - ref: "#screenshot_recon"
-        condition: "need visual layout understanding"
+        condition: "layout still unclear"
       - ref: "#create_profile"
-        params: { app: "{app}" }
 
   ax_recon:
-    desc: "Assess AX quality and map elements"
-    params:
-      app: "App name"
+    desc: "Assess AX quality — determines entire automation strategy"
     steps:
       - action: focus_app
         app: "{app}"
       - action: ax_scan
         app: "{app}"
-        note: "Count elements → determines strategy"
     output:
-      element_count: "Number of AX elements"
-      quality: "> 100 = excellent (use AX), < 10 = poor (use OCR)"
-      buttons: "List of named buttons"
-      fields: "List of text fields"
-      links: "List of links"
+      element_count: "Total AX elements"
+      quality_tier:
+        excellent: "> 100 elements → AX-first strategy"
+        mixed: "10-100 → AX for buttons, OCR for content"
+        poor: "< 10 → OCR-first, template match for recurring elements"
+        webview: "Elements but no interaction → cliclick only"
 
   ocr_recon:
-    desc: "OCR scan when AX is insufficient"
+    desc: "OCR when AX is insufficient"
     steps:
       - cmd: 'python3 scripts/gui_agent.py observe --app {app}'
-      - cmd: 'python3 scripts/gui_agent.py find ""'
-        note: "Full text dump with coordinates"
-    output:
-      visible_text: "All text with positions"
-      layout_hints: "Sidebar vs main area separation"
+      - action: ocr_find
+        text: ""
+        note: "Full text dump"
+    output: "All visible text with coordinates"
 
   screenshot_recon:
-    desc: "Visual analysis with vision model (last resort)"
+    desc: "Visual analysis (last resort)"
     steps:
       - action: screenshot
         path: "/tmp/app_explore.png"
-      # Agent analyzes with vision model
-    output:
-      layout: "Window regions, toolbar, sidebar, main area"
-      interaction_patterns: "What's clickable, where to type"
+      # Agent uses vision model to understand layout
 
   create_profile:
-    desc: "Generate an app profile JSON from recon results"
-    output_file: "apps/{app}.json"
-    template: |
-      {
-        "app": "{app}",
-        "process_name": "{app}",
-        "layout": {
-          "sidebar_width": 250,
-          "input_bottom_offset": 60
-        },
-        "navigation": {
-          "method": "sidebar_click or search",
-          "search_shortcut": {"key": "f", "modifiers": ["command"]}
-        },
-        "input": {
-          "method": "ocr or window_calc",
-          "ocr_keyword": "placeholder text"
-        },
-        "send": {"key": "return"},
-        "quirks": []
-      }
+    desc: "Generate apps/{app}.json from collected info"
+    template:
+      app: "{app}"
+      process_name: "{app}"
+      layout: { sidebar_width: 250, input_bottom_offset: 60 }
+      navigation: { method: "to be determined", search_shortcut: null }
+      input: { method: "to be determined" }
+      send: { key: "return" }
+      quirks: []
 
-decision_tree:
-  - condition: "AX elements > 100"
-    strategy: "AX-first: use ax_click for buttons, ax_scan for state"
-  - condition: "AX elements 10-100"
-    strategy: "Mixed: AX for buttons, OCR for text content"
-  - condition: "AX elements < 10"
-    strategy: "OCR-first: use gui_agent.py find/observe, template_match for recurring elements"
-  - condition: "WebView-based UI"
-    strategy: "cliclick only: osascript keystroke won't work"
+what_to_document:
+  - "Window regions: sidebar, main area, input field"
+  - "AX quality and which elements are accessible"
+  - "WebView vs native?"
+  - "Keyboard shortcuts for search, send"
+  - "Quirks: auto-lock, focus stealing, non-standard input"

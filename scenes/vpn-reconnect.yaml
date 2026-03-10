@@ -1,14 +1,33 @@
-# Scene: GlobalProtect VPN Reconnect
-# Goal: Restore VPN connection via SSO authentication
+# Scene: VPN Reconnect (GlobalProtect + CityU SSO)
+# Provides: restore VPN connection
+#
+# Interface (what callers see):
+#   full_reconnect() → VPN connected, SSH works
+#
+# Internal structure (only loaded when this scene is entered):
+#   full_reconnect
+#   ├── check_status()               → connected | disconnected | login_pending
+#   ├── restart_gp()                 → clean GP state
+#   ├── initiate_connect()           → SSO window open
+#   ├── sso_login()                  → authenticated
+#   │   ├── click_next()
+#   │   ├── get_field_positions()    → {field_center, verify_center}
+#   │   ├── ref: 1password#get_password  → password in clipboard
+#   │   └── enter_password()         → Verify clicked
+#   └── verify_connection()          → SSH OK
 
 scene: vpn-reconnect
-goal: "Reconnect GlobalProtect VPN with CityU SSO login"
 depends_on:
-  - scenes/1password.yaml  # For SSO password retrieval
+  - scenes/1password.yaml
 
+exports:
+  full_reconnect:
+    params: {}
+    output: "VPN connected, SSH accessible"
+
+# === Internal Implementation ===
 meta_actions:
   full_reconnect:
-    desc: "Complete VPN reconnect from disconnected state"
     steps:
       - ref: "#check_status"
       - ref: "#restart_gp"
@@ -16,120 +35,108 @@ meta_actions:
       - ref: "#initiate_connect"
       - ref: "#sso_login"
       - ref: "#verify_connection"
-    lessons:
-      - "SSO page has timeout — be fast between Next → password → Verify"
-      - "Max 3 retries before SSO locks out"
 
   check_status:
-    desc: "Determine current VPN state"
+    desc: "Determine VPN state via AX"
     steps:
       - action: ax_scan
         app: "GlobalProtect"
-        note: "Look for 'Connected'/'Disconnected' in staticTexts, or 'Connect'/'Disconnect' buttons"
     output:
-      connected: "Has 'Disconnect' button"
-      disconnected: "Has 'Connect' button"
-      login_pending: "Has SSO login window open"
+      connected: "'Disconnect' button exists"
+      disconnected: "'Connect' button exists"
+      login_pending: "SSO window open"
 
   restart_gp:
-    desc: "Quit and reopen GlobalProtect for clean state"
+    desc: "Clean restart GlobalProtect"
     steps:
-      - cmd: 'osascript -e ''tell application "GlobalProtect" to quit'''
+      - action: quit_app
+        app: "GlobalProtect"
       - action: wait
         seconds: 3
-      - cmd: "open -a GlobalProtect"
+      - action: open_app
+        app: "GlobalProtect"
       - action: wait
         seconds: 5
-    lessons:
-      - "Always restart fresh to avoid stale SSO sessions"
 
   initiate_connect:
-    desc: "Open GP panel and click Connect"
+    desc: "Open panel and click Connect"
     steps:
       - action: ax_click
-        note: "menuBars[1].menuBarItems[0].click() to open panel"
+        note: "menuBars[1].menuBarItems[0].click()"
       - action: wait
         seconds: 2
       - action: ax_click
         name: "Connect"
       - action: wait
         seconds: 7
-        note: "SSO window takes time to load"
+        note: "SSO window loads slowly"
 
   sso_login:
-    desc: "Complete SSO authentication in GP's WebView"
+    desc: "Complete SSO authentication"
     steps:
       - ref: "#click_next"
       - action: wait
         seconds: 4
-        note: "Wait for password page to render"
       - ref: "#get_field_positions"
-      - ref: "scenes/1password.yaml#get_password"
+      - ref: "scenes/1password.yaml#get_password"    # ← cross-scene reference
         params:
           entry: "CityU"
           verify: { username: "zichuanfu2", strength: "Fair" }
       - ref: "#enter_password"
     lessons:
-      - "Must get password AFTER field is visible (90s TTL countdown starts at copy)"
-      - "WebView: osascript keystroke doesn't work — use cliclick c:x,y for everything"
+      - "Get password AFTER field is visible (minimize 90s TTL window)"
+      - "WebView: osascript keystroke doesn't work — cliclick only"
 
   click_next:
-    desc: "Click the Next button in SSO page"
     steps:
       - action: ax_scan
         app: "GlobalProtect"
         window: "GlobalProtect Login"
         find: { role: "AXButton", title: "Next" }
       - action: ax_click
-        note: "Click Next if found via AX"
-      - action: click
-        note: "Fallback: cliclick at AX position if ax_click fails"
+        fallback: "cliclick c:{position} if AX click fails"
 
   get_field_positions:
-    desc: "Get password field and Verify button coordinates"
+    desc: "Locate password field and Verify button"
     steps:
       - action: ax_scan
         app: "GlobalProtect"
         window: "GlobalProtect Login"
         find:
-          - { role: "AXTextField", output: "field_pos" }
-          - { role: "AXButton", title: "Verify", output: "verify_pos" }
+          - { role: "AXTextField", output: "field_center" }
+          - { role: "AXButton", title: "Verify", output: "verify_center" }
     output:
-      field_center: "Math.round(pos[0] + size[0]/2), Math.round(pos[1] + size[1]/2)"
-      verify_center: "Same calculation for Verify button"
+      field_center: "Math.round(pos + size/2)"
+      verify_center: "Math.round(pos + size/2)"
     lessons:
-      - "Coordinates change when window is moved — ALWAYS re-query"
-      - "cliclick needs integer coordinates — Math.round()"
+      - "Coordinates change on window move — always re-query"
+      - "Integer coords only for cliclick"
 
   enter_password:
-    desc: "Click field, paste password, click Verify"
+    desc: "Paste password and click Verify"
     steps:
       - action: click
         target: "{field_center}"
-        note: "Focus the password field"
       - action: paste
-        note: "Cmd+V — password should be in clipboard from 1Password step"
       - action: wait
         seconds: 0.3
       - action: click
         target: "{verify_center}"
-        note: "Click Verify button"
     lessons:
-      - "Use Cmd+V paste, NOT cliclick t: (special chars get truncated)"
-      - "cliclick kp:return does NOT trigger Verify in WebView — must click"
+      - "Cmd+V paste, NOT cliclick t: (special chars truncate)"
+      - "cliclick kp:return does NOT trigger Verify in WebView"
 
   verify_connection:
-    desc: "Confirm VPN is connected"
+    desc: "Test SSH to confirm VPN is up"
     steps:
       - action: wait
         seconds: 8
-      - cmd: "sshpass -p '{ssh_password}' ssh -o ConnectTimeout=5 {ssh_host} 'echo OK'"
-    output:
-      success: "SSH returns 'OK'"
-      failure: "Connection timeout — retry sso_login"
+      - cmd: "sshpass -p '{ssh_pass}' ssh -o ConnectTimeout=5 {ssh_host} 'echo OK'"
+    on_failure:
+      - ref: "#retry_login"
+        max_retries: 3
 
   retry_login:
-    desc: "Handle failed SSO attempt"
     steps:
       - action: ax_scan
         find: { role: "AXLink", title: "Back to sign in" }
@@ -138,10 +145,9 @@ meta_actions:
       - action: wait
         seconds: 2
       - ref: "#sso_login"
-    max_retries: 3
 
 gotchas:
-  - "SSO password ≠ SSH password — SSO from 1Password, SSH is separate"
-  - "GP WebView steals focus from all other apps"
-  - "Never display passwords in chat or logs"
-  - "Environment-specific values (portal, EID, SSH creds) belong in TOOLS.md, not here"
+  - "SSO password ≠ SSH password"
+  - "SSO page times out — be fast"
+  - "GP WebView steals focus from everything"
+  - "Credentials belong in TOOLS.md, not here"

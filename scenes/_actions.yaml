@@ -1,80 +1,113 @@
-# Atomic Actions Catalog
-# These are the leaf nodes — cannot be decomposed further.
+# Atomic Actions — Universal Primitives
+# These are shared by ALL scenes. They are the leaf nodes of any task decomposition.
+# When a scene step has no `ref:`, it uses one of these actions directly.
+#
+# Loading: Only read this file when you're about to EXECUTE an action.
+# Scene files tell you WHICH action to use; this file tells you HOW.
 
 actions:
-  click:
-    desc: "Click at screen coordinates"
-    tool: cliclick
-    cmd: "/opt/homebrew/bin/cliclick c:{x},{y}"
-    notes:
-      - "Coordinates must be integers"
-      - "AX position + size/2 → center point"
 
+  # === Mouse ===
+  click:
+    desc: "Click at coordinates"
+    cmd: "/opt/homebrew/bin/cliclick c:{x},{y}"
+    constraints:
+      - "x, y must be integers (Math.round)"
+      - "Coordinates are logical pixels (not physical on Retina)"
+
+  double_click:
+    desc: "Double-click at coordinates"
+    cmd: "/opt/homebrew/bin/cliclick dc:{x},{y}"
+
+  # === Keyboard ===
   type:
-    desc: "Type text via keyboard simulation"
-    tool: cliclick
+    desc: "Type ASCII text"
     cmd: '/opt/homebrew/bin/cliclick t:"{text}"'
-    notes:
-      - "ASCII only — special chars (!@#) get truncated"
-      - "For passwords/special chars, use paste instead"
+    constraints:
+      - "ASCII only — special chars (!@#) truncate or misbehave"
+      - "For special chars or passwords → use paste instead"
 
   paste:
-    desc: "Paste from clipboard (Cmd+V)"
-    tool: osascript
+    desc: "Paste clipboard contents (Cmd+V)"
     cmd: 'osascript -e ''tell application "System Events" to keystroke "v" using command down'''
-    notes:
-      - "Requires target field to have focus"
-      - "Clipboard may have TTL (e.g. 1Password 90s)"
+    constraints:
+      - "Sends to CURRENT FOCUS — verify focus before calling"
+      - "1Password clipboard: 90s TTL"
 
   press_key:
-    desc: "Press a special key"
-    tool: cliclick
+    desc: "Press a special key (return, escape, tab, etc.)"
     cmd: "/opt/homebrew/bin/cliclick kp:{key}"
-    examples: ["kp:return", "kp:escape", "kp:tab"]
+    values: [return, escape, tab, delete, space, arrow-up, arrow-down, arrow-left, arrow-right]
 
   shortcut:
-    desc: "Keyboard shortcut"
-    tool: osascript
+    desc: "Keyboard shortcut (Cmd+X, Cmd+Shift+C, etc.)"
     cmd: 'osascript -e ''tell application "System Events" to keystroke "{key}" using {modifiers} down'''
-    notes:
-      - "Goes to current focus — verify focus first"
+    constraints:
+      - "Sends to CURRENT FOCUS"
+      - "{modifiers}: command, shift, option, control (comma-separated for combo)"
 
-  screenshot:
-    desc: "Capture screen to file"
-    tool: screencapture
-    cmd: "/usr/sbin/screencapture -x {path}"
-    notes:
-      - "Must use absolute path /usr/sbin/screencapture in headless environments"
-
+  # === Accessibility (AX) ===
   ax_scan:
-    desc: "List all AX elements in a window"
-    tool: osascript-jxa
-    notes:
-      - "Returns role, title, position, size for each element"
-      - "Best source for button/field coordinates"
-      - "Window move invalidates all positions"
+    desc: "List all UI elements in an app window with role, title, position, size"
+    returns: "Array of {role, title, position:[x,y], size:[w,h]}"
+    usage: |
+      osascript -l JavaScript -e '
+      var all = Application("System Events").processes["{app}"].windows[0].entireContents();
+      var r = [];
+      for (var i = 0; i < all.length; i++) {
+          try {
+              var role = all[i].role(), t = all[i].title() || "";
+              var p = all[i].position(), s = all[i].size();
+              r.push(role + " \"" + t + "\" (" + p[0] + "," + p[1] + ") " + s[0] + "x" + s[1]);
+          } catch(e) {}
+      }
+      r.join("\n");'
+    constraints:
+      - "Window move invalidates ALL positions — re-scan every time"
+      - "Some apps have poor AX (WeChat: 5 elements). Use OCR instead"
 
   ax_click:
-    desc: "Click an AX element by name (no coordinates needed)"
-    tool: osascript-jxa
-    cmd: 'se.processes["{app}"].windows[0].buttons.byName("{name}").click()'
+    desc: "Click a named AX element directly (no coordinates needed)"
+    usage: 'se.processes["{app}"].windows[0].buttons.byName("{name}").click()'
+    constraints:
+      - "Only works if element has a title/name in AX"
+      - "Fails silently on WebView elements — use click instead"
 
   ax_menu:
     desc: "Click a menu bar item"
-    tool: osascript-jxa
-    cmd: 'p.menuBars[0].menuBarItems.byName("{menu}").menus[0].menuItems.byName("{item}").click()'
+    usage: 'p.menuBars[0].menuBarItems.byName("{menu}").menus[0].menuItems.byName("{item}").click()'
 
-  focus_app:
-    desc: "Bring an app to front"
-    tool: osascript
-    cmd: 'osascript -e ''tell application "{app}" to activate'''
+  # === Observation ===
+  screenshot:
+    desc: "Capture screen to image file"
+    cmd: "/usr/sbin/screencapture -x {path}"
+    constraints:
+      - "MUST use /usr/sbin/ absolute path (not in PATH for headless envs)"
+      - "Use for state verification, not for coordinate extraction (use AX)"
 
   ocr_find:
     desc: "Find text on screen with coordinates"
-    tool: gui_agent.py
     cmd: 'python3 scripts/gui_agent.py find "{text}"'
+    returns: "List of matches with (x, y) logical coordinates"
 
+  # === App Control ===
+  focus_app:
+    desc: "Bring an app to foreground"
+    cmd: 'osascript -e ''tell application "{app}" to activate'''
+
+  hide_others:
+    desc: "Hide all apps except the target"
+    cmd: 'osascript -e ''tell application "System Events" to set visible of every process whose name is not "{app}" to false'''
+
+  open_app:
+    desc: "Launch an app"
+    cmd: "open -a {app}"
+
+  quit_app:
+    desc: "Quit an app"
+    cmd: 'osascript -e ''tell application "{app}" to quit'''
+
+  # === Timing ===
   wait:
-    desc: "Sleep for a duration"
-    tool: shell
+    desc: "Sleep for N seconds"
     cmd: "sleep {seconds}"
