@@ -1,0 +1,103 @@
+# Scene: Chat App Messaging
+# Goal: Send/read messages in desktop chat apps
+
+scene: messaging
+goal: "Send or read messages in WeChat, Discord, Telegram, etc."
+
+meta_actions:
+  send_message:
+    desc: "Send a message to a contact/channel"
+    params:
+      app: "Target app name"
+      contact: "Contact or channel name"
+      message: "Text to send"
+    steps:
+      - ref: "#focus_and_isolate"
+        params: { app: "{app}" }
+      - ref: "#navigate_to_contact"
+        params: { app: "{app}", contact: "{contact}" }
+      - ref: "#input_and_send"
+        params: { app: "{app}", message: "{message}" }
+    alternative:
+      cmd: 'python3 scripts/gui_agent.py task send_message --app {app} --param contact="{contact}" --param message="{message}"'
+
+  read_messages:
+    desc: "Read visible messages in current chat"
+    params:
+      app: "Target app name"
+      contact: "Contact or channel name (optional if already open)"
+    steps:
+      - ref: "#focus_and_isolate"
+        params: { app: "{app}" }
+      - ref: "#navigate_to_contact"
+        params: { app: "{app}", contact: "{contact}" }
+        condition: "contact specified"
+      - action: ocr_find
+        text: ""
+        note: "Full OCR scan of main chat area"
+    alternative:
+      cmd: 'python3 scripts/gui_agent.py task read_messages --app {app} --param contact="{contact}"'
+
+  focus_and_isolate:
+    desc: "Bring app to front and hide others"
+    params:
+      app: "App name"
+    steps:
+      - action: focus_app
+        app: "{app}"
+      - cmd: 'osascript -e ''tell application "System Events" to set visible of every process whose name is not "{app}" to false'''
+    lessons:
+      - "Always hide others before GUI automation to prevent mis-clicks"
+
+  navigate_to_contact:
+    desc: "Open a specific contact/channel"
+    params:
+      app: "App name"
+      contact: "Contact or channel to find"
+    steps:
+      # App-specific navigation — check apps/{app}.json for details
+      - note: "WeChat: click sidebar OCR match (no Cmd+F!)"
+      - note: "Discord: Cmd+K → type name → Enter"
+      - note: "Telegram: Cmd+F → type name → Enter"
+    lessons:
+      - "WeChat Cmd+F opens web search, not contact search"
+      - "Re-clicking highlighted WeChat chat doesn't reopen — click away first"
+
+  input_and_send:
+    desc: "Type message and send"
+    params:
+      app: "App name"
+      message: "Text to type"
+    steps:
+      - action: click
+        note: "Click input field (position from app profile or OCR)"
+      - action: type
+        text: "{message}"
+      - action: press_key
+        key: "return"
+    lessons:
+      - "WeChat: Enter sends, Shift+Enter for newline"
+      - "Input field position: use app profile layout.input_bottom_offset"
+
+app_profiles:
+  wechat:
+    ax_quality: "Useless (5 elements)"
+    navigation: "sidebar OCR click"
+    search: "Template match search_bar (NOT Cmd+F)"
+    input: "window_calc (OCR can't see faint placeholder)"
+    send_key: "return"
+    quirks:
+      - "Cmd+F opens web search (搜一搜)"
+      - "Re-clicking highlighted chat is a no-op"
+
+  discord:
+    ax_quality: "Excellent (1362 elements)"
+    navigation: "Cmd+K quick switcher"
+    input: "OCR finds 'Message #channel-name'"
+    send_key: "return"
+
+  telegram:
+    ax_quality: "Good"
+    navigation: "Cmd+F search"
+    input: "OCR finds 'Write a message'"
+    send_key: "return"

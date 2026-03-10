@@ -1,0 +1,91 @@
+# Scene: Explore a New App
+# Goal: Understand an unknown app's UI for automation
+
+scene: app-explore
+goal: "Map an unfamiliar app's UI elements, layout, and interaction patterns"
+
+meta_actions:
+  full_exploration:
+    desc: "Complete recon of a new app"
+    params:
+      app: "App name"
+    steps:
+      - ref: "#ax_recon"
+        params: { app: "{app}" }
+      - ref: "#ocr_recon"
+        params: { app: "{app}" }
+        condition: "ax_quality < 10 elements"
+      - ref: "#screenshot_recon"
+        condition: "need visual layout understanding"
+      - ref: "#create_profile"
+        params: { app: "{app}" }
+
+  ax_recon:
+    desc: "Assess AX quality and map elements"
+    params:
+      app: "App name"
+    steps:
+      - action: focus_app
+        app: "{app}"
+      - action: ax_scan
+        app: "{app}"
+        note: "Count elements → determines strategy"
+    output:
+      element_count: "Number of AX elements"
+      quality: "> 100 = excellent (use AX), < 10 = poor (use OCR)"
+      buttons: "List of named buttons"
+      fields: "List of text fields"
+      links: "List of links"
+
+  ocr_recon:
+    desc: "OCR scan when AX is insufficient"
+    steps:
+      - cmd: 'python3 scripts/gui_agent.py observe --app {app}'
+      - cmd: 'python3 scripts/gui_agent.py find ""'
+        note: "Full text dump with coordinates"
+    output:
+      visible_text: "All text with positions"
+      layout_hints: "Sidebar vs main area separation"
+
+  screenshot_recon:
+    desc: "Visual analysis with vision model (last resort)"
+    steps:
+      - action: screenshot
+        path: "/tmp/app_explore.png"
+      # Agent analyzes with vision model
+    output:
+      layout: "Window regions, toolbar, sidebar, main area"
+      interaction_patterns: "What's clickable, where to type"
+
+  create_profile:
+    desc: "Generate an app profile JSON from recon results"
+    output_file: "apps/{app}.json"
+    template: |
+      {
+        "app": "{app}",
+        "process_name": "{app}",
+        "layout": {
+          "sidebar_width": 250,
+          "input_bottom_offset": 60
+        },
+        "navigation": {
+          "method": "sidebar_click or search",
+          "search_shortcut": {"key": "f", "modifiers": ["command"]}
+        },
+        "input": {
+          "method": "ocr or window_calc",
+          "ocr_keyword": "placeholder text"
+        },
+        "send": {"key": "return"},
+        "quirks": []
+      }
+
+decision_tree:
+  - condition: "AX elements > 100"
+    strategy: "AX-first: use ax_click for buttons, ax_scan for state"
+  - condition: "AX elements 10-100"
+    strategy: "Mixed: AX for buttons, OCR for text content"
+  - condition: "AX elements < 10"
+    strategy: "OCR-first: use gui_agent.py find/observe, template_match for recurring elements"
+  - condition: "WebView-based UI"
+    strategy: "cliclick only: osascript keystroke won't work"

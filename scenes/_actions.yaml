@@ -1,0 +1,80 @@
+# Atomic Actions Catalog
+# These are the leaf nodes — cannot be decomposed further.
+
+actions:
+  click:
+    desc: "Click at screen coordinates"
+    tool: cliclick
+    cmd: "/opt/homebrew/bin/cliclick c:{x},{y}"
+    notes:
+      - "Coordinates must be integers"
+      - "AX position + size/2 → center point"
+
+  type:
+    desc: "Type text via keyboard simulation"
+    tool: cliclick
+    cmd: '/opt/homebrew/bin/cliclick t:"{text}"'
+    notes:
+      - "ASCII only — special chars (!@#) get truncated"
+      - "For passwords/special chars, use paste instead"
+
+  paste:
+    desc: "Paste from clipboard (Cmd+V)"
+    tool: osascript
+    cmd: 'osascript -e ''tell application "System Events" to keystroke "v" using command down'''
+    notes:
+      - "Requires target field to have focus"
+      - "Clipboard may have TTL (e.g. 1Password 90s)"
+
+  press_key:
+    desc: "Press a special key"
+    tool: cliclick
+    cmd: "/opt/homebrew/bin/cliclick kp:{key}"
+    examples: ["kp:return", "kp:escape", "kp:tab"]
+
+  shortcut:
+    desc: "Keyboard shortcut"
+    tool: osascript
+    cmd: 'osascript -e ''tell application "System Events" to keystroke "{key}" using {modifiers} down'''
+    notes:
+      - "Goes to current focus — verify focus first"
+
+  screenshot:
+    desc: "Capture screen to file"
+    tool: screencapture
+    cmd: "/usr/sbin/screencapture -x {path}"
+    notes:
+      - "Must use absolute path /usr/sbin/screencapture in headless environments"
+
+  ax_scan:
+    desc: "List all AX elements in a window"
+    tool: osascript-jxa
+    notes:
+      - "Returns role, title, position, size for each element"
+      - "Best source for button/field coordinates"
+      - "Window move invalidates all positions"
+
+  ax_click:
+    desc: "Click an AX element by name (no coordinates needed)"
+    tool: osascript-jxa
+    cmd: 'se.processes["{app}"].windows[0].buttons.byName("{name}").click()'
+
+  ax_menu:
+    desc: "Click a menu bar item"
+    tool: osascript-jxa
+    cmd: 'p.menuBars[0].menuBarItems.byName("{menu}").menus[0].menuItems.byName("{item}").click()'
+
+  focus_app:
+    desc: "Bring an app to front"
+    tool: osascript
+    cmd: 'osascript -e ''tell application "{app}" to activate'''
+
+  ocr_find:
+    desc: "Find text on screen with coordinates"
+    tool: gui_agent.py
+    cmd: 'python3 scripts/gui_agent.py find "{text}"'
+
+  wait:
+    desc: "Sleep for a duration"
+    tool: shell
+    cmd: "sleep {seconds}"

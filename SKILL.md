@@ -7,53 +7,76 @@ description: "Control desktop GUI applications on macOS using Accessibility API,
 
 You ARE the agent loop: Observe → Decide → Act → Verify.
 
-## When to use this skill
+## Scene Index
 
-- Operating any macOS desktop app (click, type, navigate)
-- Automating multi-step GUI workflows (VPN login, messaging, form filling)
-- Reading screen content when browser tool can't access it
+Tasks are modeled as **hierarchical scenes**. Each scene has a goal and decomposes into sub-scenes (meta actions) → atomic actions. Read only what you need.
 
-## Available Workflows
+| Scene | File | Goal |
+|-------|------|------|
+| **Atomic Actions** | `scenes/_actions.yaml` | All leaf-level operations (click, type, paste, AX scan...) |
+| **1Password** | `scenes/1password.yaml` | Retrieve credentials from 1Password GUI |
+| **VPN Reconnect** | `scenes/vpn-reconnect.yaml` | Reconnect GlobalProtect VPN via SSO (depends on: 1password) |
+| **Messaging** | `scenes/messaging.yaml` | Send/read messages in WeChat, Discord, Telegram |
+| **App Exploration** | `scenes/app-explore.yaml` | Map an unfamiliar app's UI for automation |
 
-Read the specific workflow doc you need — don't load all of them.
+### How scenes compose
 
-| Workflow | File | Use when |
-|----------|------|----------|
-| **Core Principles** | `docs/core.md` | First time using GUI agent, or need a refresher on tools/techniques |
-| **VPN Reconnect** | `docs/vpn-reconnect.md` | GlobalProtect VPN disconnected, need to re-authenticate via SSO |
-| **App Messaging** | `docs/messaging.md` | Send/read messages in WeChat, Discord, Telegram |
-| **App Exploration** | `docs/app-explore.md` | Encountering a new app for the first time |
-| **1Password** | `docs/1password.md` | Need to retrieve credentials from 1Password GUI |
+```
+VPN Reconnect (big scene)
+├── Restart GP (meta action)
+│   ├── quit app (action)
+│   ├── open app (action)
+│   └── wait (action)
+├── SSO Login (meta action)
+│   ├── Click Next (action)
+│   ├── Get Password → ref: 1password.yaml#get_password (sub-scene)
+│   │   ├── Focus 1Password (action)
+│   │   ├── Select Entry (meta action)
+│   │   │   ├── Cmd+F (action)
+│   │   │   ├── Type search (action)
+│   │   │   └── Enter (action)
+│   │   ├── Verify Entry (meta action)
+│   │   └── Click Dots to Copy (action)
+│   ├── Click Password Field (action)
+│   ├── Cmd+V Paste (action)
+│   └── Click Verify (action)
+└── Verify Connection (meta action)
+    └── SSH test (action)
+```
 
 ## Quick Decision Tree
 
 ```
-Need to click/type in a desktop app?
-  → Read docs/core.md for tools & principles
-
-VPN down?
-  → Read docs/vpn-reconnect.md
-
-Send/read messages in chat app?
-  → Read docs/messaging.md
-
-New app, don't know the UI?
-  → Read docs/app-explore.md
-
-Need a password from 1Password?
-  → Read docs/1password.md
+What do you need to do?
+│
+├── VPN/SSH down? → read scenes/vpn-reconnect.yaml
+├── Need a password? → read scenes/1password.yaml
+├── Send/read chat messages? → read scenes/messaging.yaml
+├── New app, unknown UI? → read scenes/app-explore.yaml
+├── Just need one atomic op? → read scenes/_actions.yaml
+└── Core principles/lessons? → read docs/core.md
 ```
+
+## Key Principles (always apply)
+
+1. **AX first, OCR second, screenshot last** — AX is fastest and most precise
+2. **Never assume focus** — click target before typing
+3. **Paste > Type** for passwords/special chars
+4. **Integer coordinates only** for cliclick
+5. **Re-query AX positions** every time — window moves invalidate coords
 
 ## File Structure
 ```
 gui-agent/
-├── SKILL.md              # This index (load first)
-├── docs/                 # Workflow docs (load on demand)
-│   ├── core.md           # Core principles, tools, lessons learned
-│   ├── vpn-reconnect.md  # GlobalProtect VPN reconnect
-│   ├── messaging.md      # Chat app messaging
-│   ├── app-explore.md    # Exploring new apps
-│   └── 1password.md      # 1Password credential retrieval
+├── SKILL.md              # This index
+├── scenes/               # Hierarchical scene definitions (load on demand)
+│   ├── _actions.yaml     # Atomic action catalog
+│   ├── 1password.yaml    # 1Password operations
+│   ├── vpn-reconnect.yaml
+│   ├── messaging.yaml
+│   └── app-explore.yaml
+├── docs/                 # Detailed reference docs
+│   └── core.md           # Core principles & hard-won lessons
 ├── apps/                 # App profiles (JSON)
 ├── scripts/              # Automation scripts
 └── README.md             # Human documentation
