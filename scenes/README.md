@@ -1,54 +1,86 @@
-# Scenes — Hierarchical Action Modeling
+# Scene System — Loading Protocol
 
-## Core Concepts
+## For LLM Agents
+
+### When you receive a GUI task:
 
 ```
-Scene (场景)
-├── Meta Action (子场景/组合动作)
-│   ├── Meta Action (更小的子场景)
-│   │   ├── Action (原子操作: click, type, screenshot...)
-│   │   └── Action
-│   └── Action
-└── Meta Action
-    └── ...
+1. SKILL.md tells you which scene to load
+2. Read the scene YAML
+3. Look at `exports:` — this is the interface (params + output)
+4. Look at `meta_actions:` — these are the steps
+5. Each step is either:
+   - action: → look up in _actions.yaml for how to execute
+   - ref: "#local_meta_action" → expand another meta action in same file
+   - ref: "scenes/other.yaml#export" → load another scene file
+6. Execute from top to bottom, following refs as needed
 ```
 
-- **Scene**: 一个有明确目标的上下文（如 "VPN 重连"、"1Password 取密码"）
-- **Meta Action**: 由多个子步骤组成的组合动作，本身也可以被更大的 scene 引用
-- **Action**: 不可再分的原子操作（click, type, keystroke, screenshot, AX query...）
+### Loading rules:
 
-## Cross-reference（交叉引用）
+- **Only load what you need** — don't read all scenes upfront
+- **Follow refs lazily** — only read a referenced scene when you reach that step
+- **_actions.yaml is loaded last** — only when you're about to execute an atomic op
+- **docs/core.md** — read once at the start if this is your first GUI task in the session
 
-一个 scene 可以引用另一个 scene 作为子步骤：
+## Scene YAML Structure
+
 ```yaml
-- step: Get CityU password
-  ref: scenes/1password.yaml#get_password
+# Header
+scene: scene-name
+goal: "What this scene accomplishes"
+depends_on:                              # Optional: scenes this one references
+  - scenes/other.yaml
+
+# Public interface — what other scenes see
+exports:
+  action_name:
+    params:
+      param1: "Description"
+    output: "What the caller gets back"
+
+# Internal implementation — only loaded when entering this scene
+meta_actions:
+  action_name:                           # Same name as export
+    steps:
+      - action: click                    # Atomic action from _actions.yaml
+        target: "{x},{y}"
+      - ref: "#other_meta_action"        # Local meta action
+        params: { key: "value" }
+      - ref: "scenes/other.yaml#export"  # Cross-scene reference
+        params: { key: "value" }
+        condition: "when to execute"     # Optional guard
+
+  other_meta_action:
+    desc: "What this does"
+    steps: [...]
+    lessons:                             # Hard-won lessons for this specific step
+      - "Things that went wrong and how to avoid"
+
+# Scene-level warnings
+gotchas:
+  - "Important caveats for this entire scene"
+```
+
+## Cross-Reference Syntax
+
+```yaml
+# Same file
+- ref: "#meta_action_name"
+
+# Another scene file
+- ref: "scenes/1password.yaml#get_password"
   params:
     entry: "CityU"
-    verify: { username: "zichuanfu2", strength: "Fair" }
 ```
 
-这样 "VPN 重连" 不需要重复写 "1Password 取密码" 的细节，直接引用即可。
+## Dependency Graph
 
-## File Format
-
-每个 scene 是一个 YAML 文件：
 ```
-scenes/
-├── README.md          # This file
-├── _actions.yaml      # Atomic action catalog
-├── vpn-reconnect.yaml # VPN reconnect scene
-├── 1password.yaml     # 1Password operations
-├── messaging.yaml     # Chat app messaging
-└── app-explore.yaml   # New app exploration
+_actions.yaml (shared primitives)
+    ↑
+1password.yaml ← vpn-reconnect.yaml
+    ↑
+messaging.yaml (independent)
+app-explore.yaml (independent)
 ```
-
-## Loading Strategy
-
-Agent 处理任务时：
-1. 读 SKILL.md 索引 → 确定需要哪个 scene
-2. 读对应 scene YAML → 了解整体步骤
-3. 遇到 `ref:` 引用 → 按需读子 scene
-4. 最底层是 `_actions.yaml` 里的原子操作
-
-不需要一次加载所有 scene。

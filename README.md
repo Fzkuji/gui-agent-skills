@@ -1,251 +1,165 @@
 # 🖥️ GUI Agent Skills
 
-> AI-powered desktop automation skills for macOS — let any LLM see, click, type, and navigate any app.
+> Hierarchical desktop automation for macOS — let any LLM see, click, type, and navigate any app.
 
-A skill pack that turns any LLM with tool-calling into a desktop automation agent. Uses **OCR + template matching + AppleScript** for fast, local element detection, with vision model as a fallback. No dedicated GUI model needed.
+A skill pack that models GUI automation as **composable scenes**. Big tasks decompose into sub-scenes, sub-scenes into atomic actions. The LLM agent loads only what it needs, progressively.
 
-## ✨ Features
-
-- **🚀 Works with any LLM** — Claude, GPT-4, Gemini, local models. Just needs tool-calling.
-- **📱 App-agnostic** — Works with any macOS app out of the box. App profiles for precision.
-- **⚡ Fast verification** — 4-level hierarchy from 0.1s (AppleScript) to 5s (vision model). Most actions never need a screenshot.
-- **🧩 10 built-in tasks** — Send messages, read screens, click elements, use menus, scroll, and more.
-- **🔧 Self-improving** — Template matching learns from first interaction, subsequent uses are instant.
-- **🔒 Privacy-first** — Everything runs locally. No screenshots sent to cloud unless you use vision model fallback.
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────────────────────┐
-│  Your LLM (Claude, GPT, etc.)  │  Decides what to do next
-├─────────────────────────────────┤
-│  gui_agent.py                   │  Tasks + atomic actions + observation
-├──────────┬──────────┬───────────┤
-│ AppleScript │  OCR    │ Template  │  Fast, local, free
-│  (0.1s)     │ (1.6s)  │  (1.3s)   │
-├──────────┴──────────┴───────────┤
-│  Vision Model (fallback, 5-10s) │  Only when needed
-└─────────────────────────────────┘
+SKILL.md (index)          ← Agent reads this first (~80 lines)
+    │
+    ├── scenes/*.yaml     ← Load on demand per task
+    │   ├── vpn-reconnect.yaml    (depends on → 1password.yaml)
+    │   ├── 1password.yaml
+    │   ├── messaging.yaml
+    │   ├── app-explore.yaml
+    │   └── _actions.yaml         (shared atomic operations)
+    │
+    ├── docs/core.md      ← General principles & lessons learned
+    ├── apps/*.json        ← App-specific UI profiles
+    └── scripts/           ← Execution tools
 ```
 
-**Verification hierarchy** — always use the lightest method that works:
+### Progressive Disclosure
 
-| Level | Method | Speed | Use case |
-|-------|--------|-------|----------|
-| 1 | AppleScript | ~0.1s | App focused? Window title? |
-| 2 | Template match | ~1.3s | Known element appeared? |
-| 3 | OCR | ~1.6s | Text visible/gone? |
-| 4 | Vision model | ~5-10s | Complex layout judgment |
+Each layer only exposes the next layer's **interface**, not its implementation:
 
-## 📦 Installation
+```
+Level 0: SKILL.md
+    "VPN down" → read scenes/vpn-reconnect.yaml
 
-### Prerequisites
+Level 1: vpn-reconnect.yaml
+    exports: full_reconnect() → VPN connected
+    internally: sso_login → ref: 1password.yaml#get_password
+
+Level 2: 1password.yaml (loaded because referenced)
+    exports: get_password(entry, verify) → clipboard
+    internally: select_entry → verify_entry → copy_password (click dots)
+
+Level 3: _actions.yaml (loaded when executing)
+    click(x, y), paste(), ax_scan(app), screenshot(path)...
+```
+
+### Scene Composition
+
+Scenes reference each other via `ref:`:
+
+```yaml
+# In vpn-reconnect.yaml
+- ref: "scenes/1password.yaml#get_password"
+  params:
+    entry: "CityU"
+    verify: { username: "zichuanfu2", strength: "Fair" }
+```
+
+This means "VPN reconnect" doesn't duplicate "get password" logic — it just calls it.
+
+## Concepts
+
+| Concept | Description | Example |
+|---------|-------------|---------|
+| **Scene** | A goal-oriented context with clear entry/exit | "Reconnect VPN", "Send WeChat message" |
+| **Meta Action** | A composed step within a scene; can reference sub-scenes | "SSO Login" = Next + get_password + enter_password |
+| **Action** | Atomic, indivisible operation | click(x,y), type("hello"), ax_scan("App") |
+| **Export** | A scene's public interface (params → output) | get_password(entry, verify) → clipboard |
+| **Ref** | Cross-scene reference | `ref: scenes/1password.yaml#get_password` |
+
+## Quick Start
+
+### For LLM agents (OpenClaw)
+
+The agent reads `SKILL.md` to find the right scene, then follows it:
+
+```
+1. Read SKILL.md → identify scene
+2. Read the scene YAML → understand steps
+3. Follow refs to sub-scenes as needed
+4. Execute atomic actions via scripts/tools
+```
+
+### For direct CLI use
 
 ```bash
-# macOS only — uses Vision framework, AppleScript, screencapture
-# Install cliclick (mouse/keyboard simulation)
-brew install cliclick
-
-# Python dependencies
-pip install opencv-python-headless numpy
-```
-
-### Install as OpenClaw Skill
-
-```bash
-# Clone to your skills directory
-git clone https://github.com/Fzkuji/gui-agent-skill.git \
-  ~/.openclaw/workspace/skills/gui-agent
-```
-
-Or manually download and place in any `skills/` directory your agent can access.
-
-### Permissions
-
-On first run, macOS will ask for **Accessibility permissions** for `cliclick` and your terminal app. Click "Allow" once — it persists after that.
-
-## 🚀 Quick Start
-
-### High-level tasks (one command)
-
-```bash
-cd path/to/gui-agent
-
-# Send a WeChat message
+# High-level tasks
 python3 scripts/gui_agent.py task send_message --app WeChat \
-  --param contact="John" --param message="Hey!"
+  --param contact="John" --param message="hi"
 
-# Read messages from a chat
-python3 scripts/gui_agent.py task read_messages --app WeChat \
-  --param contact="John"
-
-# Scroll through chat history
-python3 scripts/gui_agent.py task scroll_history --app WeChat \
-  --param contact="John" --param pages="5"
-
-# Click any element on screen by its text
-python3 scripts/gui_agent.py task click_element --app Safari \
-  --param text="Downloads"
-
-# Type in a field
-python3 scripts/gui_agent.py task type_in_field --app Safari \
-  --param field="Search" --param text="hello world" --param submit="true"
-
-# Use menu bar
-python3 scripts/gui_agent.py task menu_action --app Safari \
-  --param menu="File" --param item="New Tab"
-
-# Discover available menus
-python3 scripts/gui_agent.py task list_menus --app Safari
-python3 scripts/gui_agent.py task list_menus --app Safari --param menu="File"
-```
-
-### Mid-level: Atomic actions (LLM decides)
-
-```bash
-# Observe screen state (structured text, not a screenshot)
+# Observe
 python3 scripts/gui_agent.py observe --app WeChat
+python3 scripts/gui_agent.py find "keyword"
 
-# Execute a single action
+# Atomic actions
 python3 scripts/gui_agent.py exec '{"action": "click_ocr", "text": "Settings"}'
-python3 scripts/gui_agent.py exec '{"action": "focus_app", "app": "WeChat"}'
-python3 scripts/gui_agent.py exec '{"action": "type", "text": "hello"}'
-python3 scripts/gui_agent.py exec '{"action": "key", "key": "return"}'
 
-# Find text on screen with coordinates
-python3 scripts/gui_agent.py find "Settings"
-python3 scripts/gui_agent.py find "Send" --region '{"x_min": 400}'
-```
-
-### Template matching (self-improving)
-
-```bash
-# Learn a UI element (first time: uses OCR to find coordinates)
-python3 scripts/template_match.py save --app WeChat --name search_bar \
-  --region 235,187,150,25
-
-# Find it later (instant, ~1.3s)
-python3 scripts/template_match.py find --app WeChat --name search_bar
-
-# Click it
-python3 scripts/template_match.py click --app WeChat --name search_bar
-```
-
-## 📂 All Tasks
-
-```bash
+# List all tasks
 python3 scripts/gui_agent.py tasks
 ```
 
-| Task | Description | Requires Profile |
-|------|-------------|:---:|
-| `send_message` | Send a message to a contact/channel | Recommended |
-| `read_messages` | Read visible messages in a chat | Recommended |
-| `scroll_history` | Scroll up to read older messages | Recommended |
-| `open_app` | Open and focus any app | No |
-| `read_screen` | OCR all visible text with coordinates | No |
-| `click_element` | Find and click by text or template | No |
-| `type_in_field` | Click field + type + optional submit | No |
-| `menu_action` | Execute menu bar action via AppleScript | No |
-| `list_menus` | Discover available menu items | No |
-| `scroll` | Scroll in any direction | No |
+## Scenes
 
-## 🎯 App Profiles
+| Scene | File | Goal | Dependencies |
+|-------|------|------|-------------|
+| **Atomic Actions** | `scenes/_actions.yaml` | Shared primitives (click, type, AX, OCR...) | None |
+| **1Password** | `scenes/1password.yaml` | Copy credentials to clipboard | _actions |
+| **VPN Reconnect** | `scenes/vpn-reconnect.yaml` | Restore GlobalProtect VPN | 1password |
+| **Messaging** | `scenes/messaging.yaml` | Send/read in chat apps | _actions |
+| **App Exploration** | `scenes/app-explore.yaml` | Map unfamiliar app UI | _actions |
 
-App profiles in `apps/*.json` define app-specific layout and behavior:
+### Adding a new scene
 
-```bash
-python3 scripts/gui_agent.py apps
-```
+1. Create `scenes/your-scene.yaml`
+2. Define `exports:` (public interface)
+3. Define `meta_actions:` (internal steps)
+4. Reference `_actions.yaml` for atomic ops, or other scenes via `ref:`
+5. Add entry to SKILL.md index table
 
-**Included profiles:** WeChat, Discord, Telegram
+## App Profiles
 
-**Apps without profiles work too** — they get sensible defaults (sidebar width 250px, Enter to send, etc.). Profiles just make things more precise.
+App-specific configs in `apps/*.json`:
 
-### Create a new profile
+| App | AX Quality | Navigation | Notes |
+|-----|-----------|------------|-------|
+| WeChat | Poor (5) | Sidebar OCR | No Cmd+F, faint placeholder |
+| Discord | Excellent (1362) | Cmd+K switcher | AX-first strategy |
+| Telegram | Good | Cmd+F search | Standard |
+| GlobalProtect | WebView | AX + cliclick | osascript doesn't work in WebView |
 
-```json
-{
-  "app": "Slack",
-  "process_name": "Slack",
-  "layout": {
-    "sidebar_width": 260,
-    "input_bottom_offset": 60,
-    "sidebar_x_max": 360
-  },
-  "navigation": {
-    "method": "sidebar_click",
-    "fallback": "search",
-    "search_shortcut": {"key": "k", "modifiers": ["command"]}
-  },
-  "input": {
-    "method": "ocr",
-    "ocr_keyword": "Message #",
-    "fallback": "window_calc"
-  },
-  "send": {"key": "return"},
-  "verify": {"method": "ocr", "region": "main_area"},
-  "quirks": ["Cmd+K opens channel switcher"]
-}
-```
+## Prerequisites
 
-Save as `apps/slack.json` and all tasks work immediately.
+- **macOS** with Accessibility permissions
+- `brew install cliclick`
+- `pip install opencv-python-headless numpy`
+- Python venv recommended: `~/scrapling-env/`
 
-## 🤖 Integration with AI Agents
-
-### OpenClaw
-
-This skill is designed for [OpenClaw](https://github.com/openclaw/openclaw). Place it in your skills directory and the agent will automatically use it when asked to interact with desktop apps.
-
-### Other LLM agents
-
-The scripts work standalone. Your agent just needs to:
-
-1. Call `gui_agent.py observe --app X` to see the screen
-2. Decide what to do based on the text output
-3. Call `gui_agent.py exec '{...}'` or `gui_agent.py task ...` to act
-4. Verify with the lightest method available
-
-No vision model needed for most operations — OCR output is structured text with coordinates.
-
-## 📁 Project Structure
+## File Structure
 
 ```
 gui-agent/
-├── README.md                # You're reading this
-├── SKILL.md                 # Agent instructions (loaded by OpenClaw)
-├── apps/                    # App profiles
+├── SKILL.md              # Agent index (~80 lines)
+├── README.md             # This file
+├── scenes/               # Hierarchical scene definitions
+│   ├── README.md         # Scene system documentation
+│   ├── _actions.yaml     # Atomic action catalog (shared)
+│   ├── 1password.yaml    # Credential retrieval
+│   ├── vpn-reconnect.yaml
+│   ├── messaging.yaml
+│   └── app-explore.yaml
+├── docs/
+│   └── core.md           # Core principles & hard-won lessons
+├── apps/                 # App UI profiles (JSON)
 │   ├── wechat.json
 │   ├── discord.json
-│   └── telegram.json
-├── scripts/
-│   ├── gui_agent.py         # Main agent engine
-│   ├── template_match.py    # Template learning & matching
-│   ├── workflow_runner.py   # Legacy JSON workflow executor
-│   ├── ocr_screen.sh        # OCR shell wrapper
-│   └── ocr_screen.swift     # macOS Vision OCR
-├── templates/               # Auto-generated (gitignored)
-│   └── {AppName}/           # Learned UI element templates
-└── workflows/               # Legacy declarative workflows
-    └── wechat_send_message.json
+│   ├── telegram.json
+│   └── globalprotect.json
+├── scripts/              # Execution tools
+│   ├── gui_agent.py      # Main engine (observe/exec/task/find)
+│   ├── template_match.py # Template learning & matching
+│   ├── ocr_screen.sh     # OCR shell wrapper
+│   └── ocr_screen.swift  # macOS Vision OCR
+└── _legacy/              # Archived old implementations
 ```
 
-## ⚠️ Limitations
-
-- **macOS only** — Uses Vision framework, AppleScript, screencapture, cliclick
-- **Accessibility permissions required** — Prompted on first use
-- **OCR can't see everything** — Very faint placeholder text, icons without labels need vision model fallback
-- **Retina displays** — Coordinates are in logical pixels (physical ÷ 2). Handled automatically.
-- **Some apps have poor Accessibility API** — WeChat exposes only 5 elements. OCR + templates are the workaround.
-
-## 📄 License
+## License
 
 MIT
-
-## 🙏 Credits
-
-Built with:
-- [cliclick](https://github.com/BlueM/cliclick) — macOS mouse/keyboard automation
-- [OpenCV](https://opencv.org/) — Template matching
-- Apple Vision Framework — On-device OCR
-- [OpenClaw](https://github.com/openclaw/openclaw) — AI agent platform
