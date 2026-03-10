@@ -447,15 +447,19 @@ def task_send_message(app_name, params, log):
     profile = get_profile_or_default(app_name)
     app = profile["app"]
     
-    # 1. Prepare
+    # 1. Prepare (don't hide others by default — only on retry)
     log("prepare", f"focusing {app}")
-    hide_other_apps(app)
     activate(app)
     
     # 2. Navigate
     if not _navigate_to_contact(profile, contact, log):
-        restore_apps()
-        return False, f"Could not navigate to '{contact}'"
+        # Retry with hide_others in case window overlap caused the failure
+        log("retry", "navigation failed, hiding other apps and retrying")
+        hide_other_apps(app)
+        activate(app)
+        if not _navigate_to_contact(profile, contact, log):
+            restore_apps()
+            return False, f"Could not navigate to '{contact}'"
     
     # 3. Verify chat opened (quick re-observe)
     state = observe(app)
@@ -498,8 +502,9 @@ def task_send_message(app_name, params, log):
         else:
             log("verify", "⚠ message not found by OCR (may still have sent)")
     
-    # 6. Cleanup
-    restore_apps()
+    # 6. Cleanup (restore if we hid apps during retry)
+    if _hidden_apps:
+        restore_apps()
     return True, f"Sent to {contact}: {message[:40]}"
 
 
@@ -571,9 +576,9 @@ def task_scroll_history(app_name, params, log):
 # ═══════════════════════════════════════════
 
 def task_open_app(app_name, params, log):
-    """Open and focus an app. Hides others for clean workspace."""
+    """Open and focus an app. Optionally hides others (default: no)."""
     app = params.get("app", app_name)
-    hide_other = params.get("hide_others", "true").lower() == "true"
+    hide_other = params.get("hide_others", "false").lower() == "true"
     
     if hide_other:
         hidden = hide_other_apps(app)
