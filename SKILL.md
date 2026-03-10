@@ -160,6 +160,50 @@ Without this, Chinese text gets garbled during paste. Set in every exec call.
 
 ---
 
+## Battle-Tested Lessons (2026-03-10)
+
+Real failures from automating GlobalProtect VPN + 1Password. These apply to **any** multi-app GUI automation.
+
+### 1. Focus Theft is the #1 Enemy
+- **Any app can steal focus at any time.** GP SSO pops a WebView window mid-flow; macOS auth dialogs appear; apps auto-activate.
+- **`osascript keystroke` goes to the focused window**, not the window you think. If GP steals focus while you're "typing" into 1Password, you just typed your search query into the GP password field.
+- **Rule: Never use `keystroke` for anything important.** Use `cliclick c:x,y` to explicitly click where you need, then `cliclick t:` or Cmd+V to input.
+- **Do the focus-stealing app first.** Complete all GP steps (Connect → Next → wait for password page) *before* touching 1Password.
+
+### 2. Coordinate Discipline
+- **AX is the single source of truth for coordinates.** Don't estimate from screenshots.
+- **`cliclick` requires integer coordinates.** AX returns floats from `position + size/2`. Always `Math.round()`.
+- **Coordinates change when windows move.** If you moved a window (intentionally or not), re-query AX before clicking.
+- **Use center of element**: `x = pos[0] + size[0]/2`, `y = pos[1] + size[1]/2`.
+
+### 3. Clipboard is Fragile
+- **1Password clears clipboard after 90 seconds.** Copy password as the *last step before pasting*, not at the beginning.
+- **Verify clipboard immediately**: `pbpaste | wc -c` — if 0, it's been cleared.
+- **Don't assume clipboard contents.** Other apps or system events can overwrite it.
+
+### 4. Identity Verification for Credentials
+- **Search results can have multiple similar entries.** "CityU" in 1Password returned: a login (correct), a credit card (wrong), and Underline with a cityu email (wrong, 19 chars).
+- **Always verify**: check the right panel for username + website + password strength before copying.
+- **Password length is a good sanity check.** If you expected 11 chars and got 19, you have the wrong entry.
+
+### 5. WebView Inputs are Special
+- **`osascript keystroke` doesn't work in WebViews** (GP, Electron apps).
+- **`cliclick kp:return` doesn't click buttons in WebViews.** Must use `cliclick c:x,y` on the actual button.
+- **`cliclick t:` truncates on special characters.** Cmd+V paste is more reliable for passwords.
+- **WebViews load slowly.** After clicking "Next", wait 3-5 seconds for the password page to render and AX elements to appear.
+
+### 6. Debugging: Screenshot Every Step
+- `/usr/sbin/screencapture -x path.png` + vision model analysis — this is your "eyes"
+- **Don't retry blindly.** Screenshot first, understand current state, then decide next action.
+- **AX state check is faster than screenshot** for confirming element existence: `entireContents` → find role/title.
+
+### 7. Timeout-Sensitive Flows
+- SSO pages expire. GP gives ~60-90 seconds before "Unable to sign in" appears.
+- **Plan the entire flow before starting.** Know every coordinate and action sequence.
+- **Single-script execution is fastest.** Avoid round-trips between shell calls when timing matters.
+
+---
+
 ## Platform Notes (macOS)
 
 ### Coordinate System
