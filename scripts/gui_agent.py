@@ -309,6 +309,94 @@ def execute_action(action_dict):
 # App profiles
 # ═══════════════════════════════════════════
 
+# ═══════════════════════════════════════════
+# App discovery & fuzzy matching
+# ═══════════════════════════════════════════
+
+# Common aliases: user might say these instead of the real app name
+APP_ALIASES = {
+    "微信": "WeChat", "wechat": "WeChat",
+    "chrome": "Google Chrome", "谷歌浏览器": "Google Chrome", "浏览器": "Google Chrome",
+    "safari": "Safari",
+    "qq": "QQ",
+    "telegram": "Telegram", "tg": "Telegram", "电报": "Telegram",
+    "discord": "Discord",
+    "outlook": "Microsoft Outlook", "邮件": "Microsoft Outlook", "邮箱": "Microsoft Outlook",
+    "word": "Microsoft Word",
+    "excel": "Microsoft Excel",
+    "powerpoint": "Microsoft PowerPoint", "ppt": "Microsoft PowerPoint",
+    "obsidian": "Obsidian", "笔记": "Obsidian",
+    "系统设置": "System Settings", "settings": "System Settings", "设置": "System Settings",
+    "终端": "Terminal", "terminal": "Terminal",
+    "音乐": "NeteaseMusic", "网易云": "NeteaseMusic",
+    "spotify": "Spotify",
+    "企业微信": "企业微信", "wecom": "企业微信",
+    "cursor": "Cursor",
+    "claude": "Claude",
+    "腾讯会议": "TencentMeeting",
+}
+
+def resolve_app_name(name):
+    """Resolve a user-provided app name to the actual macOS app name.
+    Tries: exact match → alias → running processes → installed apps (fuzzy)."""
+    if not name:
+        return name
+    
+    # 1. Check alias table
+    lower = name.lower().strip()
+    if lower in APP_ALIASES:
+        return APP_ALIASES[lower]
+    
+    # 2. Check running processes (exact)
+    try:
+        running = osascript(
+            'tell application "System Events" to return name of every process whose background only is false'
+        ).split(", ")
+        for proc in running:
+            if proc.lower() == lower:
+                return proc
+    except:
+        pass
+    
+    # 3. Check running processes (fuzzy contains)
+    try:
+        for proc in running:
+            if lower in proc.lower() or proc.lower() in lower:
+                return proc
+    except:
+        pass
+    
+    # 4. Check /Applications (fuzzy)
+    try:
+        apps_dir = Path("/Applications")
+        for app in apps_dir.iterdir():
+            if app.suffix == ".app":
+                app_name_clean = app.stem
+                if lower in app_name_clean.lower() or app_name_clean.lower() in lower:
+                    return app_name_clean
+    except:
+        pass
+    
+    # 5. Give up, return as-is (let activate fail gracefully)
+    return name
+
+def list_running_apps():
+    """List currently running (visible) apps."""
+    try:
+        return osascript(
+            'tell application "System Events" to return name of every process whose background only is false'
+        ).split(", ")
+    except:
+        return []
+
+def list_installed_apps():
+    """List apps in /Applications."""
+    try:
+        return [f.stem for f in Path("/Applications").iterdir() if f.suffix == ".app"]
+    except:
+        return []
+
+
 _profiles_cache = {}
 
 def load_app_profile(app_name):
@@ -835,12 +923,26 @@ TASKS = {
         "fn": task_scroll,
         "params": {"direction": "up/down/top/bottom (default down, optional)", "amount": "Number of pages (default 3, optional)"},
     },
+    "find_app": {
+        "fn": lambda app_name, params, log: (
+            True,
+            f"Running: {', '.join(list_running_apps())}\n"
+            f"Resolved '{params.get('query', app_name)}' → '{resolve_app_name(params.get('query', app_name))}'"
+        ),
+        "params": {"query": "App name to search for (optional)"},
+    },
 }
 
 
 def run_task(task_name, app_name, params):
     if task_name not in TASKS:
         return False, f"Unknown task '{task_name}'. Available: {', '.join(TASKS.keys())}"
+    
+    # Resolve app name (fuzzy match, aliases)
+    resolved = resolve_app_name(app_name)
+    if resolved != app_name:
+        print(f"  (resolved '{app_name}' → '{resolved}')")
+    app_name = resolved
     
     task_def = TASKS[task_name]
     logs = []
