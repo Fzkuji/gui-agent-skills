@@ -7,7 +7,7 @@
 #
 # Dependencies:
 #   - apps/discord.json (UI layout config)
-#   - scenes/_actions.yaml (atomic operations)
+#   - actions/_actions.yaml (atomic operations)
 
 scene: discord
 app: Discord

@@ -11,15 +11,17 @@ You ARE the agent loop: Observe → Decide → Act → Verify.
 
 Tasks are modeled as **hierarchical scenes**, organized by app. Each scene decomposes into meta actions → atomic actions. Read only what you need.
 
-| Scene | File | Goal |
-|-------|------|------|
-| **Atomic Actions** | `scenes/_actions.yaml` | Shared primitives (click, type, paste, AX scan...) |
-| **WeChat** | `scenes/wechat.yaml` | Send/read messages, scroll history in WeChat |
-| **Discord** | `scenes/discord.yaml` | Send/read messages in Discord |
-| **Telegram** | `scenes/telegram.yaml` | Send/read messages in Telegram |
+| Scene | Location | Goal |
+|-------|----------|------|
+| **Atomic Actions** | `actions/_actions.yaml` | Shared primitives (click, type, paste, AX scan...) |
+| **WeChat** | `scenes/wechat/` | Send/read messages, scroll history (complex → folder) |
+| **Discord** | `scenes/discord.yaml` | Send/read messages (simple → single file) |
+| **Telegram** | `scenes/telegram.yaml` | Send/read messages (simple → single file) |
 | **1Password** | `scenes/1password.yaml` | Retrieve credentials from 1Password GUI |
-| **VPN Reconnect** | `scenes/vpn-reconnect.yaml` | Reconnect GlobalProtect VPN (depends on: 1password) |
-| **App Exploration** | `scenes/app-explore.yaml` | Map an unfamiliar app's UI for automation |
+| **VPN Reconnect** | `scenes/vpn-reconnect.yaml` | Reconnect GlobalProtect VPN (refs: 1password) |
+| **App Exploration** | `scenes/app-explore.yaml` | Map an unfamiliar app's UI |
+
+**Convention**: Simple app (1-2 operations) → single `.yaml`. Complex app (3+ operations) → folder with `index.yaml` + sub-scenes.
 
 ### How scenes compose
 
@@ -51,13 +53,13 @@ VPN Reconnect (big scene)
 ```
 What do you need to do?
 │
-├── WeChat (发消息/读消息)? → read scenes/wechat.yaml
+├── WeChat (发消息/读消息)? → read scenes/wechat/index.yaml
 ├── Discord? → read scenes/discord.yaml
 ├── Telegram? → read scenes/telegram.yaml
 ├── VPN/SSH down? → read scenes/vpn-reconnect.yaml
 ├── Need a password? → read scenes/1password.yaml
 ├── New app, unknown UI? → read scenes/app-explore.yaml
-├── Just need one atomic op? → read scenes/_actions.yaml
+├── Just need one atomic op? → read actions/_actions.yaml
 └── Core principles/lessons? → read docs/core.md
 ```
 
@@ -73,14 +75,19 @@ What do you need to do?
 ```
 gui-agent/
 ├── SKILL.md              # This index
+├── actions/              # Atomic operations (shared by all scenes)
+│   └── _actions.yaml     # click, type, paste, AX scan, etc.
 ├── scenes/               # Scenes organized by app (load on demand)
-│   ├── _actions.yaml     # Atomic action catalog (shared by all scenes)
-│   ├── wechat.yaml       # WeChat: send/read/scroll
-│   ├── discord.yaml      # Discord: send/read
-│   ├── telegram.yaml     # Telegram: send/read
-│   ├── 1password.yaml    # 1Password: get credentials
-│   ├── vpn-reconnect.yaml  # GlobalProtect VPN (refs 1password)
-│   └── app-explore.yaml  # Explore unknown apps
+│   ├── wechat/           # Complex app → folder
+│   │   ├── index.yaml    # Overview + exports
+│   │   ├── send_message.yaml
+│   │   ├── read_messages.yaml
+│   │   └── scroll_history.yaml
+│   ├── discord.yaml      # Simple app → single file
+│   ├── telegram.yaml
+│   ├── 1password.yaml
+│   ├── vpn-reconnect.yaml  # Cross-app (refs 1password)
+│   └── app-explore.yaml
 ├── docs/                 # Detailed reference docs
 │   └── core.md           # Core principles & hard-won lessons
 ├── apps/                 # App profiles (JSON)
