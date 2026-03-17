@@ -63,6 +63,13 @@ Screen (0,0) ──────────────────────�
 - **AX is perfect for Dock/menubar** — don't waste time on CV for those
 - **Electron apps (Discord, Cursor) have huge AX trees** — filter by region, don't scan everything
 
+### Status Bar / Menu Bar / Floating Windows
+- **Status bar icons**: Use AppleScript `click menu bar item 1 of menu bar 2 of process "AppName"` — NOT screenshot+YOLO
+- **Menu items**: Navigate by name: `click menu item "Switch Profile" of menu 1 of ...`
+- **Sub-menus**: `click menu item "MESL" of menu 1 of menu item "Switch Profile" of ...`
+- **Check active item**: `value of attribute "AXMenuItemMarkChar"` returns checkmark
+- **Floating windows/popups**: Appear temporarily — screenshot fast before they disappear, or use AppleScript if available
+
 ### Remote Server Management (JupyterLab)
 - **nvitop** is usually already running in one of the terminal tabs — don't create new notebooks/terminals unnecessarily, look for existing ones first
 - JupyterLab has multiple terminal tabs — check ALL tabs before creating new ones
