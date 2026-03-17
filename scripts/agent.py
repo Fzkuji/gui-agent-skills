@@ -56,47 +56,74 @@ def app_has_memory(app_name):
     return len(data.get("components", {})) > 5
 
 
-def revise_app(app_name, required_components=None):
-    """Smart check: match existing memory against current screen.
+def get_known_pages(app_name):
+    """Get list of learned pages for an app."""
+    app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_")
+    profile_path = app_dir / "profile.json"
+    if not profile_path.exists():
+        return []
+    with open(profile_path) as f:
+        profile = json.load(f)
+    return list(profile.get("pages", {}).keys())
 
-    Decision logic:
-    1. Run template match on all known components
-    2. If match rate > 80% AND all required components found → memory is good, skip learn
-    3. If match rate < 80% OR required components missing → incremental learn (update memory)
+
+def revise_app(app_name, workflow=None, required_components=None):
+    """Smart check: decide if memory is sufficient for current workflow.
+
+    Decision logic based on WORKFLOW, not just app:
+    1. App never learned → full learn
+    2. App learned, but workflow/page is new → learn this page
+    3. App learned, workflow known → template match to verify
+       - Match rate ≥ 80% → memory good, skip learn
+       - Match rate < 80% → incremental learn (update)
 
     Args:
-        app_name: App to check
-        required_components: List of component names needed for current task.
-                           If None, just check overall match rate.
+        app_name: App name
+        workflow: Task/page name (e.g., "smart_scan", "malware_removal", "send_message")
+                 If None, checks overall app memory.
+        required_components: Specific components needed for this task.
 
     Returns:
-        (ready, match_info) — ready=True means memory is sufficient
+        (ready, match_info)
     """
     app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_")
     profile_path = app_dir / "profile.json"
 
+    # Case 1: App never learned
     if not profile_path.exists():
-        print(f"  🧠 No memory for {app_name}, learning from scratch...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
+        page = workflow or "main"
+        print(f"  🧠 No memory for {app_name}, learning (page: {page})...")
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", page], timeout=30)
         print(out)
-        return code == 0, {"action": "full_learn"}
+        return code == 0, {"action": "full_learn", "page": page}
 
-    # Load existing profile
     with open(profile_path) as f:
         profile = json.load(f)
 
+    known_pages = list(profile.get("pages", {}).keys())
+
+    # Case 2: Workflow/page is new (never learned this page)
+    if workflow and workflow not in known_pages:
+        print(f"  🆕 New workflow '{workflow}' for {app_name} (known pages: {known_pages})")
+        print(f"  🧠 Learning new page...")
+        activate_app(app_name)
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", workflow], timeout=30)
+        print(out)
+        return code == 0, {"action": "learn_new_page", "page": workflow, "known_pages": known_pages}
+
+    # Case 3: Workflow known → verify via template match
     total_components = len(profile.get("components", {}))
     if total_components == 0:
+        page = workflow or "main"
         print(f"  🧠 Empty memory for {app_name}, learning...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", page], timeout=30)
         print(out)
-        return code == 0, {"action": "full_learn"}
+        return code == 0, {"action": "full_learn", "page": page}
 
-    # Run detect to see how many known components match
     activate_app(app_name)
     out, code = run_script("app_memory.py", ["detect", "--app", app_name], timeout=20)
 
-    # Parse match results
+    # Parse results
     matched_count = out.count("✅")
     unknown_count = 0
     for line in out.split("\n"):
@@ -113,6 +140,8 @@ def revise_app(app_name, required_components=None):
         "matched": matched_count,
         "unknown": unknown_count,
         "match_rate": round(match_rate, 2),
+        "workflow": workflow,
+        "known_pages": known_pages,
     }
 
     # Check required components
@@ -121,10 +150,8 @@ def revise_app(app_name, required_components=None):
         for comp in required_components:
             if comp not in profile["components"]:
                 missing_required.append(comp)
-            else:
-                # Component exists in profile, check if it matched on screen
-                if f"✅ {comp}" not in out:
-                    missing_required.append(comp)
+            elif f"✅ {comp}" not in out:
+                missing_required.append(comp)
 
     info["missing_required"] = missing_required
 
@@ -140,26 +167,23 @@ def revise_app(app_name, required_components=None):
         if missing_required:
             reason.append(f"missing: {missing_required}")
 
-        print(f"  🔄 Memory outdated ({', '.join(reason)}), updating...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
+        page = workflow or "main"
+        print(f"  🔄 Memory outdated ({', '.join(reason)}), updating page '{page}'...")
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", page], timeout=30)
         print(out)
         info["action"] = "incremental_learn"
         return code == 0, info
 
 
-def ensure_app_ready(app_name, required_components=None):
-    """Ensure app is ready for operation.
+def ensure_app_ready(app_name, workflow=None, required_components=None):
+    """Ensure app is ready for the given workflow.
 
-    Uses revise logic: check memory → match → learn only if needed.
+    Workflow-based revise:
+    - App not learned → full learn
+    - New workflow/page → learn new page
+    - Known workflow → verify memory, update if stale
     """
-    if not app_has_memory(app_name):
-        print(f"  🧠 First time with {app_name}, learning UI...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
-        print(out)
-        return code == 0
-
-    # Has memory → revise (check if still current)
-    ready, info = revise_app(app_name, required_components)
+    ready, info = revise_app(app_name, workflow, required_components)
     return ready
 
 
@@ -178,7 +202,7 @@ def resolve_app_name(raw_name):
 def activate_app(app_name):
     """Bring app to front."""
     subprocess.run(["osascript", "-e", f'tell application "{app_name}" to activate'],
-                   capture_output=True, timeout=5)
+                   capture_output=True, timeout=10)
     time.sleep(0.5)
 
 
@@ -205,7 +229,7 @@ def get_window_bounds(app_name):
 def action_send_message(app_name, contact, message):
     """Send a message in a chat app."""
     app_name = resolve_app_name(app_name)
-    ensure_app_ready(app_name)
+    ensure_app_ready(app_name, workflow="send_message")
     activate_app(app_name)
 
     print(f"  📨 Sending to {contact}: {message}")
@@ -221,7 +245,7 @@ def action_send_message(app_name, contact, message):
 def action_read_messages(app_name, contact=None):
     """Read messages in a chat app."""
     app_name = resolve_app_name(app_name)
-    ensure_app_ready(app_name)
+    ensure_app_ready(app_name, workflow="read_messages")
     activate_app(app_name)
 
     params = ["task", "read_messages", "--app", app_name]
@@ -235,7 +259,7 @@ def action_read_messages(app_name, contact=None):
 def action_click_component(app_name, component):
     """Click a named component in an app."""
     app_name = resolve_app_name(app_name)
-    ensure_app_ready(app_name)
+    ensure_app_ready(app_name, required_components=[component])
     activate_app(app_name)
 
     print(f"  🖱️ Clicking {component} in {app_name}")
@@ -271,10 +295,10 @@ def action_learn_app(app_name):
     return code == 0
 
 
-def action_detect(app_name):
+def action_detect(app_name, workflow=None):
     """Detect and match components in an app."""
     app_name = resolve_app_name(app_name)
-    ensure_app_ready(app_name)
+    ensure_app_ready(app_name, workflow=workflow)
     activate_app(app_name)
 
     out, code = run_script("app_memory.py", ["detect", "--app", app_name], timeout=20)
@@ -350,9 +374,10 @@ ACTIONS = {
         "desc": "List known components",
     },
     "revise": {
-        "fn": lambda app_name: revise_app(app_name),
+        "fn": lambda app_name, workflow=None: revise_app(app_name, workflow=workflow),
         "args": ["app"],
-        "desc": "Check memory freshness, learn only if outdated",
+        "optional": ["workflow"],
+        "desc": "Check memory freshness for a workflow, learn if needed",
     },
     "read_screen": {
         "fn": action_screenshot_and_read,
@@ -370,6 +395,7 @@ def main():
     parser.add_argument("--message", help="Message text")
     parser.add_argument("--component", help="Component name to click")
     parser.add_argument("--url", help="URL to navigate to")
+    parser.add_argument("--workflow", help="Workflow/page name (for revise logic)")
     parser.add_argument("--list-actions", action="store_true", help="List available actions")
     args = parser.parse_args()
 
@@ -405,6 +431,8 @@ def main():
             kwargs["component"] = args.component
         if args.url:
             kwargs["url"] = args.url
+        if args.workflow:
+            kwargs["workflow"] = args.workflow
 
         # Handle app_name vs app parameter naming
         if "app_name" in fn.__code__.co_varnames and "app" in kwargs:

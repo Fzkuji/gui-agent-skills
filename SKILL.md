@@ -256,20 +256,26 @@ python3 scripts/agent.py read_screen --app WeChat
 - Activates the app window before operating
 - Calls the right underlying script (app_memory / gui_agent / ui_detector)
 
-### Revise Logic
+### Revise Logic (Workflow-Based)
 
 ```
-agent.py gets a task → ensure_app_ready(app, required_components)
+agent.py gets a task → ensure_app_ready(app, workflow, required_components)
   │
-  ├── No memory at all? → full learn
+  ├── App never learned? → full learn
   │
-  └── Has memory → revise:
-        ├── Template match all known components against current screen
-        ├── Match rate ≥ 80% AND required components all found?
-        │     → ✅ Memory is current, proceed with task
-        └── Match rate < 80% OR required components missing?
-              → 🔄 Incremental learn (re-detect, update memory)
+  ├── App learned, but this workflow/page is NEW?
+  │     → learn this specific page (e.g., 'malware_removal')
+  │     → existing pages preserved, new page added
+  │
+  └── App learned, workflow known → template match:
+        ├── Match ≥ 80% → memory good, proceed
+        └── Match < 80% → incremental learn (update)
 ```
+
+**Examples:**
+- "Clean my Mac" → workflow='smart_scan' → page known → use memory
+- "Scan for malware" → workflow='malware_removal' → NEW page → learn it
+- "Send WeChat message" → workflow='send_message' → page known → use memory
 
 ### For OpenClaw agents
 
