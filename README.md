@@ -33,63 +33,71 @@
 
 ## 💬 What It Looks Like
 
-### Example 1: "帮我在微信里给小明发消息，就说明天见"
+> **You**: "帮我在微信里给小明发消息，就说明天见"
 
 ```
-[0s]  👁 OBSERVE — Screenshot → OCR → Current app: Finder (not WeChat)
-[1s]  🔍 MEMORY — WeChat learned? Yes (24 components in memory)
-[1s]  📱 ACTIVATE — Bring WeChat to front
-[2s]  👁 OBSERVE — WeChat main page, 小明 not in visible chat list
-[3s]  🔍 SEARCH — Template match search_bar_icon (conf=0.96) → click
-[4s]  📋 PASTE — "小明" → clipboard → Cmd+V into search field
-[5s]  👁 OBSERVE — Search results appeared, "小明" found at (685, 252)
-[5s]  ✅ VERIFY — Click 小明 → OCR chat header → confirmed "小明"
-[6s]  📋 PASTE — "明天见" → clipboard → Cmd+V into input field
-[7s]  ⌨️ SEND — Press Enter
-[8s]  👁 CONFIRM — OCR chat area → "明天见" visible → sent ✅
+OBSERVE  → Screenshot, identify current state
+           ├── Current app: Finder (not WeChat)
+           └── Action: need to switch to WeChat
+
+REVISE   → Check memory for WeChat
+           ├── Learned before? Yes (24 components)
+           └── Workflow "send_message" known? Yes → use existing memory
+
+NAVIGATE → Find contact "小明"
+           ├── Template match sidebar → not visible
+           ├── Template match search_bar_icon → found (conf=0.96) → click
+           ├── Paste "小明" into search field (clipboard → Cmd+V)
+           └── OCR search results → found → click
+
+VERIFY   → Confirm correct chat opened
+           ├── OCR chat header → "小明" ✅
+           └── Wrong contact? → ABORT (never happened here)
+
+ACT      → Send message
+           ├── Click input field (template match)
+           ├── Paste "明天见" (clipboard → Cmd+V)
+           └── Press Enter
+
+CONFIRM  → Verify message sent
+           ├── OCR chat area → "明天见" visible ✅
+           └── Done
 ```
 
-### Example 2: "Scan my Mac for malware"
+<details>
+<summary>📖 More examples</summary>
+
+### "Scan my Mac for malware"
 
 ```
-[0s]  👁 OBSERVE — Screenshot → CleanMyMac X not in foreground
-[1s]  📱 ACTIVATE — Open CleanMyMac X → get main window (1090×644)
-[3s]  👁 OBSERVE — Currently on Smart Scan results page ("Well done!")
-[3s]  🔍 MEMORY — "malware_removal" workflow? Known page ✅
-[4s]  🖱️ CLICK — "Malware Removal" in sidebar (279, 415) → navigate
-[5s]  👁 VERIFY — Page switched, "Scan" button visible at bottom
-[6s]  🖱️ CLICK — Scan button (855, 801) → deep scan starts
-[8s]  ⏳ POLL — Every 2s: screenshot → OCR check "No threats"
-[30s] 👁 CONFIRM — "No threats found" appeared → done ✅
+OBSERVE  → CleanMyMac X not in foreground → activate
+REVISE   → "malware_removal" workflow known? Yes
+NAVIGATE → Click "Malware Removal" in sidebar → verify page switched
+ACT      → Click "Scan" button (exact match, bottom position)
+POLL     → Every 2s: screenshot → check for "No threats"
+CONFIRM  → "No threats found" ✅
 ```
 
-### Example 3: "Check if my GPU training is still running"
+### "Check if my GPU training is still running"
 
 ```
-[0s]  👁 OBSERVE — Screenshot → Chrome is open
-[1s]  🔍 NAVIGATE — Find JupyterLab tab (bookmark "Tencent-H20-1") → click
-[3s]  👁 OBSERVE — JupyterLab loaded, multiple terminal tabs visible
-[4s]  🔍 SEARCH — OCR find "nvitop" or GPU monitoring tab → click
-[5s]  👁 READ — Screenshot terminal content:
-      GPU 0: 9% | GPU 1-7: 100% | Memory: 76GB/96GB each
-[6s]  📊 REPORT — "All 8 GPUs active, 7 at 100% utilization" ✅
+OBSERVE  → Chrome open, find JupyterLab tab → click
+EXPLORE  → Multiple terminal tabs → find nvitop tab → click
+READ     → Screenshot terminal → GPU 1-7 at 100%, experiment running ✅
 ```
 
-### Example 4: "通过活动监视器关掉 GlobalProtect"
+### "通过活动监视器关掉 GlobalProtect"
 
 ```
-[0s]  👁 OBSERVE — Screenshot current state
-[1s]  📱 OPEN — Launch GlobalProtect + Activity Monitor
-[4s]  👁 EXPLORE — Activity Monitor on Network tab, search field empty
-[5s]  🖱️ CLICK — Search field (top-right corner)
-[5s]  📋 PASTE — "GlobalProtect" → clipboard → Cmd+V (never type directly)
-[7s]  👁 OBSERVE — Process list shows GlobalProtect (PID 43079)
-[7s]  🖱️ CLICK — Select GlobalProtect process
-[8s]  🖱️ CLICK — Stop button (X) in toolbar
-[9s]  👁 OBSERVE — "Quit process?" confirmation dialog appeared
-[9s]  🖱️ CLICK — "Force Quit" button
-[10s] 👁 CONFIRM — Process list empty → GlobalProtect terminated ✅
+OBSERVE  → Launch Activity Monitor, identify current tab
+EXPLORE  → Network tab active, need search field
+ACT      → Click search field → paste "GlobalProtect" (clipboard, never type)
+VERIFY   → Process found in list → select it
+ACT      → Click stop button (X) → confirmation dialog
+VERIFY   → Click "Force Quit" → process list empty ✅
 ```
+
+</details>
 
 ## 🚀 Quick Start
 
