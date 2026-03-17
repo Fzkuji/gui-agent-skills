@@ -325,6 +325,63 @@ They are NOT executable scripts — the actual logic is in `agent.py` + `gui_age
 
 5. **Template match ≠ correct target** — A template matching "ContactName" text could be in a group chat name, a forwarded message, or another app. Always verify the CHAT HEADER after navigation, not just the sidebar click.
 
+## Operation Protocol (MANDATORY for every action)
+
+These are hard requirements. Not suggestions. Every step in order.
+
+### STEP 0: OBSERVE before anything
+
+Before ANY task, FIRST observe the current state:
+1. Screenshot the screen
+2. What app is in the foreground?
+3. Is the target app visible? What page/state is it in?
+4. Any popups, dialogs, overlays blocking?
+5. ONLY after understanding current state, proceed
+
+DO NOT skip this. DO NOT assume you know the state from last time.
+
+### STEP: PRE-CLICK VERIFY (before every click)
+
+Before clicking anything:
+1. Is the element I want to click actually on screen RIGHT NOW?
+2. Is it the CORRECT element (not something with a similar name in another window)?
+3. Am I clicking inside the correct app window?
+4. If ANY answer is NO: DO NOT CLICK. Re-observe first.
+
+### STEP: PRE-SEND VERIFY (before sending messages)
+
+Before sending any message:
+1. OCR the chat header - is the correct contact/group open?
+2. Is the message text in the input field?
+3. If NO: ABORT. Do not send.
+
+### STEP: POST-ACTION VERIFY (after every action)
+
+After any click/type/send:
+1. Screenshot again
+2. Did the expected change happen?
+3. Am I in the expected next state?
+4. If NOT: something went wrong. Re-observe and decide.
+
+### Running a known workflow
+
+DO NOT blindly replay all steps from memory. INSTEAD:
+1. Observe current state FIRST
+2. Compare with workflow: WHERE in the workflow am I right now?
+3. Skip steps already done (e.g., scan finished -> skip to Run)
+4. Execute ONLY the next needed step
+5. After each step: verify state changed, then next step
+6. If state does not match any known step: STOP and explore
+
+### Explore (when state is unclear)
+
+When you are not sure what state the app is in:
+1. Crop the target window from screenshot
+2. Use vision model to LOOK at it and describe what you see
+3. Identify: what page, what buttons, what state
+4. THEN decide what to do
+5. This is NOT optional when unsure
+
 ## Auto-Learn Rule (MUST follow)
 
 **Every time you interact with a GUI app or website, check memory FIRST:**
