@@ -325,6 +325,8 @@ They are NOT executable scripts — the actual logic is in `agent.py` + `gui_age
 
 5. **Template match ≠ correct target** — A template matching "ContactName" text could be in a group chat name, a forwarded message, or another app. Always verify the CHAT HEADER after navigation, not just the sidebar click.
 
+6. **LLM never provides coordinates** — The LLM (you) decides WHAT component to click by name. Coordinates ALWAYS come from detection tools (OCR, YOLO, template match). Never hardcode or estimate coordinates.
+
 ## Operation Protocol (MANDATORY for every action)
 
 These are hard requirements. Not suggestions. Every step in order.

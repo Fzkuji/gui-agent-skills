@@ -122,12 +122,12 @@ Screen (0,0) ──────────────────────�
 | Menu bar | Full | System | Always has names + positions |
 | Status bar | Full | System | Each app's tray icon accessible |
 
-### LLM Vision vs OCR: Different Roles
-- **LLM vision** (Claude/GPT-4o seeing screenshots): good at UNDERSTANDING (what page, what buttons, what state) — BAD at precise coordinates (±50px error typical)
-- **OCR**: good at PRECISE COORDINATES (pixel-level) — bad at understanding page context
-- **NEVER click coordinates from LLM vision directly** — always use OCR to get exact position
-- **Correct flow**: LLM says "click Force Quit" → OCR finds "Force Quit" at (793,587) → click (793,587)
-- **Wrong flow**: LLM says "Force Quit is at (719,534)" → click (719,534) → miss by 74px
+### LLM Role: Decision Only, Never Coordinates
+- **LLM decides WHAT to click** (which component/button name) — never WHERE (coordinates)
+- **Coordinates ALWAYS come from detection tools**: OCR, YOLO, template match
+- **LLM never writes coordinates directly** — not in code, not in commands, not anywhere
+- **Correct**: LLM → "click Force Quit" → OCR/YOLO/template finds coordinates → click
+- **Wrong**: LLM → "click at (719, 534)" → miss
 
 ### OCR Text Matching Pitfalls
 - **Substring matching is dangerous**: searching "Scan" also matches "Deep Scan", "Smart Scan", "Scanner"
