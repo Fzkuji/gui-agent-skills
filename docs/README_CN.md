@@ -164,15 +164,15 @@ bash scripts/setup.sh
 
 ```mermaid
 flowchart LR
-    User["🗣️ 用户请求"] --> Intent["🎯 意图匹配\n查找工作流"]
-    Intent --> Observe["👁️ 观察\nYOLO + OCR"]
+    User["🗣️ 用户\n请求"] --> Intent["🎯 意图匹配\n查找已有工作流\nLLM 语义匹配"]
+    Intent --> Observe["👁️ 观察\n截屏\nYOLO + OCR\n识别状态"]
     Observe --> Match{"在记忆\n中？"}
-    Match -- 是 --> Template["⚡ 模板匹配\n0.3 秒"]
-    Match -- 否 --> Detect["🔍 检测\n并学习"] --> Template
-    Template --> Act["🖱️ 执行\n点击/输入"]
+    Match -- "是" --> Template["⚡ 模板\n匹配\n~0.3 秒"]
+    Match -- "否" --> Detect["🔍 检测\n并学习\n保存到记忆"] --> Template
+    Template --> Act["🖱️ 执行\n验证 → 点击\n→ 新状态"]
     Act --> Confirm{"✅ 状态\n变化？"}
-    Confirm -- 是 --> Report["📊 报告"]
-    Confirm -- 否 --> Observe
+    Confirm -- "是 ✓" --> Report["📊 报告\n耗时 + Token\n+ 操作统计"]
+    Confirm -- "否 ✗" --> Observe
 ```
 
 ### 一次学习，永久匹配

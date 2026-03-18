@@ -184,15 +184,15 @@ Then just chat with your agent — it reads `SKILL.md` and handles everything au
 
 ```mermaid
 flowchart LR
-    User["🗣️ User Request"] --> Intent["🎯 Intent\nMatch workflow"]
-    Intent --> Observe["👁️ Observe\nYOLO + OCR"]
+    User["🗣️ User\nRequest"] --> Intent["🎯 Intent Match\nFind saved workflow\nLLM semantic match"]
+    Intent --> Observe["👁️ Observe\nScreenshot\nYOLO + OCR\nIdentify state"]
     Observe --> Match{"In\nmemory?"}
-    Match -- Yes --> Template["⚡ Template\nMatch 0.3s"]
-    Match -- No --> Detect["🔍 Detect\n& Learn"] --> Template
-    Template --> Act["🖱️ Act\nClick/Type"]
+    Match -- "Yes" --> Template["⚡ Template\nMatch\n~0.3s"]
+    Match -- "No" --> Detect["🔍 Detect\n& Learn\nSave to memory"] --> Template
+    Template --> Act["🖱️ Act\nVerify → Click\n→ New state"]
     Act --> Confirm{"✅ State\nchanged?"}
-    Confirm -- Yes --> Report["📊 Report"]
-    Confirm -- No --> Observe
+    Confirm -- "Yes ✓" --> Report["📊 Report\nTime + Tokens\n+ Actions"]
+    Confirm -- "No ✗" --> Observe
 ```
 
 ### Learn Once, Match Forever
