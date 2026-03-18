@@ -27,6 +27,7 @@
 
 ## 🔥 News
 
+- **[03/19/2026]** v0.3.0 — **Click-graph state architecture**: UI modeled as a graph of states; each click creates a new state entry; state identification via OCR text matching. Removed pages/regions/overlays complexity.
 - **[03/17/2026]** v0.2.0 — Workflow-based revise, event-driven polling, mandatory operation protocol (observe→verify→act→confirm), per-app visual memory with auto-cleanup.
 - **[03/16/2026]** v0.1.0 — GPA-GUI-Detector integration, Apple Vision OCR, template matching, browser automation, per-site memory.
 - **[03/10/2026]** v0.0.1 — Initial release: WeChat/Discord/Telegram automation, app profiles, fuzzy app matching.
@@ -40,15 +41,17 @@ OBSERVE  → Screenshot, identify current state
            ├── Current app: Finder (not WeChat)
            └── Action: need to switch to WeChat
 
-REVISE   → Check memory for WeChat
+STATE    → Check WeChat memory
            ├── Learned before? Yes (24 components)
-           └── Workflow "send_message" known? Yes → use existing memory
+           ├── OCR visible text: ["Chat", "Cowork", "Code", "Search", ...]
+           ├── State identified: "initial" (89% match)
+           └── Components for this state: 18 → use these for matching
 
 NAVIGATE → Find contact "John"
-           ├── Template match sidebar → not visible
-           ├── Template match search_bar_icon → found (conf=0.96) → click
+           ├── Template match search_bar → found (conf=0.96) → click
            ├── Paste "John" into search field (clipboard → Cmd+V)
-           └── OCR search results → found → click
+           ├── OCR search results → found → click
+           └── New state: "click:John" (chat opened)
 
 VERIFY   → Confirm correct chat opened
            ├── OCR chat header → "John" ✅
@@ -72,15 +75,17 @@ CONFIRM  → Verify message sent
 ```
 OBSERVE  → Screenshot → CleanMyMac X not in foreground → activate
            ├── Get main window bounds (largest window, skip status bar panels)
-           └── OCR window content → identify current page state
+           └── OCR window content → identify current state
 
-REVISE   → Check memory for CleanMyMac X
-           ├── "malware_removal" workflow known? Yes
-           └── Use existing memory, skip full re-learn
+STATE    → Check memory for CleanMyMac X
+           ├── OCR visible text: ["Smart Scan", "Malware Removal", "Privacy", ...]
+           ├── State identified: "initial" (92% match)
+           └── Know which components to match: 21 components
 
 NAVIGATE → Click "Malware Removal" in sidebar
            ├── Find element in window (exact match, filter by window bounds)
-           └── Verify page switched (OCR confirms new page content)
+           ├── Click → new state: "click:Malware_Removal"
+           └── OCR confirms new state (87% match)
 
 ACT      → Click "Scan" button
            ├── Find "Scan" (exact match, bottom position — prevents matching "Deep Scan")
@@ -173,18 +178,27 @@ Then just chat with your agent — it reads `SKILL.md` and handles everything au
 User: "Clean my Mac"
          │
          ▼
-┌─────────────────┐
-│ 0. OBSERVE      │ Screenshot → OCR → What app? What page? What state?
-└────────┬────────┘
+┌─────────────────────────────────┐
+│ 0. OBSERVE                      │ Screenshot → OCR → What app? Identify state
+│    • OCR visible text           │
+│    • Match against known states │
+└────────┬────────────────────────┘
          ▼
+┌──────────────────────────────────┐
+│ STATE IDENTIFIED                 │
+│ "initial" (92% match)            │
+│ → Know which components to match │
+└───┬──────────────────────────────┘
+    │
+    ▼
 ┌─────────────────┐     ┌──────────────────────┐
 │ In memory?      ├─No─▶│ DETECT (YOLO + OCR)  │
 └───┬─────────────┘     │ Save to memory       │
-    │ Yes               └──────────┬───────────┘
-    ▼                              │
+    │ Yes               │ Create "initial" st. │
+    ▼                   └──────────┬───────────┘
 ┌────────────┐                     │
 │ Template   │◀────────────────────┘
-│ Match 0.3s │
+│ Match 0.3s │ (only state-specific components)
 └─────┬──────┘
       ▼
 ┌─────────────────┐
@@ -193,6 +207,7 @@ User: "Clean my Mac"
          ▼
 ┌─────────────────┐
 │ 2. ACT          │ Click / type / send
+│                 │ → Creates new state entry if screen changes
 └────────┬────────┘
          ▼
 ┌─────────────────┐
@@ -224,29 +239,76 @@ User: "Clean my Mac"
 
 ## 📁 App Visual Memory
 
-Each app gets its own visual memory. Different pages/workflows are learned separately.
+Each app gets its own visual memory with a **click-graph state model**.
 
 ```
 memory/apps/
 ├── wechat/
-│   ├── profile.json              # 24 named components
-│   ├── icons/
-│   │   ├── sidebar_contacts.png
+│   ├── profile.json              # Components + click-graph states
+│   ├── components/
+│   │   ├── search_bar.png
 │   │   ├── emoji_button.png
-│   │   └── search_bar_icon.png
+│   │   └── ...
 │   └── pages/
 │       └── main_annotated.jpg
 ├── cleanmymac_x/
-│   ├── icons/
+│   ├── profile.json
+│   ├── components/
 │   └── pages/
-│       ├── smart_scan/
-│       └── malware_removal/      # Different workflow = different page
-├── google_chrome/
-│   ├── icons/
-│   └── sites/                    # Per-website memory
-│       ├── 12306_cn/
-│       └── github_com/
+└── google_chrome/
+    ├── profile.json
+    ├── components/
+    └── sites/                    # Per-website memory
+        ├── 12306_cn/
+        └── github_com/
 ```
+
+### Click Graph
+
+The UI is modeled as a **graph of states**. Each state is defined by which components are visible on screen.
+
+**profile.json structure:**
+```json
+{
+  "app": "Claude",
+  "window_size": [1512, 828],
+  "components": {
+    "Search": { "type": "icon", "rel_x": 115, "rel_y": 143, "icon_file": "components/Search.png", ... },
+    "Settings": { ... }
+  },
+  "states": {
+    "initial": {
+      "visible": ["Chat_tab", "Cowork_tab", "Code_tab", "Search", "Ideas", ...],
+      "description": "Main app view when first opened"
+    },
+    "click:Settings": {
+      "trigger": "Settings",
+      "trigger_pos": [63, 523],
+      "visible": ["Chat_tab", "Account", "Billing", "Usage", "General", ...],
+      "disappeared": ["Ideas", "Customize", ...],
+      "description": "Settings page"
+    },
+    "click:Usage": {
+      "trigger": "Usage",
+      "visible": ["Chat_tab", "Account", "Billing", "Usage", "Developer", ...],
+      "description": "Settings > Usage tab"
+    }
+  }
+}
+```
+
+**How it works:**
+1. **Initial state** = what's visible when the app first opens (captured during first `learn`)
+2. **Click creates state** = every click that changes the screen creates a new `click:ComponentName` state
+3. **State identification** = OCR screen → match visible text against each state's `visible` list → highest match ratio wins
+4. **Components belong to states** = a component can appear in multiple states (e.g., `Chat_tab` is visible in `initial`, `click:Settings`, `click:Usage`)
+5. **Matching is state-specific** = only match components that belong to the identified state
+
+**Why this works:**
+- No need to predefine "pages" or "regions" — states are discovered through interaction
+- State identification is fast (OCR text matching, no vision model needed)
+- Handles overlays, popups, nested navigation naturally
+- Scales to complex apps with many UI states
 
 ## ⚠️ Safety & Protocol
 

@@ -103,21 +103,78 @@ Each app gets a memory directory with learned components:
 
 ```
 memory/apps/<appname>/
-├── profile.json          # Component registry (app info, window bounds)
+├── profile.json          # Component registry + page/region/overlay structure
 ├── summary.json         # App overview (workflows)
 ├── components/         # Cropped component images (PNG)
-│   ├── folder_icon.png
-│   ├── button_search.png
-│   ├── icon_0.png     # Unlabeled → LLM identifies later
+│   ├── Search.png
+│   ├── Chat_tab.png
 │   └── ...
+├── pages/              # Per-page annotated screenshots
+│   ├── main_annotated.jpg
+│   └── settings_annotated.jpg
 └── workflows/          # Saved workflow sequences
     └── <workflow_name>.json
 ```
 
+### Profile Structure (profile.json)
+
+```json
+{
+  "app": "AppName",
+  "window_size": [w, h],
+  "pages": {
+    "main": {
+      "fingerprint": { "expect_text": ["Chat", "Cowork", "Code"] },
+      "regions": {
+        "sidebar": { "position": "left", "stable": true, "components": ["Search", "Ideas"] },
+        "toolbar": { "position": "top", "stable": true, "components": ["Chat_tab"] },
+        "content": { "position": "center", "stable": false, "components": [] }
+      },
+      "transitions": { "Cmd+,": { "to": "settings", "type": "page" } }
+    },
+    "settings": {
+      "fingerprint": { "expect_text": ["General", "Account", "Usage"] },
+      "regions": { ... },
+      "transitions": { "Usage": { "to": "settings", "context": "usage" } }
+    }
+  },
+  "overlays": {
+    "account_menu": {
+      "trigger": "profile_area",
+      "parent_page": "main",
+      "fingerprint": { "expect_text": ["Settings", "Log out"] },
+      "components": ["Settings_link", "Log_out"],
+      "dismiss": ["Esc", "click_outside"]
+    }
+  },
+  "components": {
+    "Search": { "type": "icon", "rel_x": 116, "rel_y": 144, "page": "main", "region": "sidebar", ... }
+  }
+}
+```
+
+### Key Concepts
+
+| Concept | Description | Example |
+|---------|------------|---------|
+| **Page** | Full UI state, mutually exclusive | main, settings |
+| **Region** | Area within a page | sidebar, toolbar, content |
+| **Overlay** | Temporary popup over a page | account menu, context menu |
+| **Fingerprint** | Text used to identify current page | ["General", "Account", "Usage"] → settings |
+| **Transition** | What happens when component is clicked | click Usage → stays on settings page |
+
+### Page-Aware Matching
+
+When detecting/matching components:
+1. OCR the screen → get visible text
+2. Match fingerprints → identify current page
+3. Only match components belonging to that page
+4. Match rate is calculated per-page, not overall
+
 ### What Gets Saved
 
 1. **components/** - Filtered YOLO-detected components (see filtering rules below)
-2. **profile.json** - App metadata
+2. **profile.json** - Component registry + page/region/overlay structure
 3. **summary.json** - App overview with workflows
 
 ### Component Filtering Rules
@@ -172,16 +229,27 @@ Only save **stable UI elements** that will look the same next session:
 2. Run GPA-GUI-Detector + Apple Vision OCR
 3. For each detected element:
    a. Has OCR label? → use label as filename
-   b. No label? → name as "unlabeled_<region>_<x>_<y>"
-   c. Check visual dedup (similarity > 0.92) → skip if duplicate
-   d. Crop and save to components/
-4. After saving all elements:
-   a. Use vision model (Claude/GPT-4o) to identify ALL unlabeled icons
-   b. Rename identified icons: app_memory.py rename --old unlabeled_xxx --new actual_name
-   c. Remove dynamic content (timestamps, message previews, chat text, stickers)
-   d. Keep ONLY fixed UI elements (buttons, icons, tabs, navigation, input fields)
-5. Result: clean profile with ~20-30 named, fixed UI components per page
+   b. No label? → _find_nearest_text gives initial guess name
+   c. Still no label? → "unlabeled_<region>_<x>_<y>"
+   d. Check visual dedup (similarity > 0.92) → skip if duplicate
+   e. Crop and save to components/
+4. Agent MUST identify all components (including _find_nearest_text named ones):
+   a. Use `image` tool to view each cropped component image
+   b. Batch up to 20 images per `image` call
+   c. For each image: read text, describe icon, determine actual name
+   d. ⚠️ PRIVACY CHECK: if image contains personal info (username, email,
+      avatar, account details, private data), DELETE it — do not keep as component
+   e. Verify _find_nearest_text names are correct (they often mismatch in dense UIs)
+   f. Rename: app_memory.py rename --old wrong_name --new actual_name
+5. After ALL identification is complete and task is done:
+   a. Run: agent.py cleanup --app AppName (removes remaining unlabeled)
+   b. Remove dynamic content (timestamps, message previews, chat text)
+   c. Keep ONLY fixed UI elements (buttons, icons, tabs, navigation, input fields)
+6. Result: clean profile with ~20-30 named, fixed UI components per page
 ```
+
+**Key rule**: `_find_nearest_text` is a HINT, not truth. Always verify by viewing the image.
+**Privacy rule**: Components containing personal info (names, emails, avatars, account badges) must be deleted, not saved.
 
 ### What to KEEP vs REMOVE after learning
 
@@ -329,6 +397,27 @@ They are NOT executable scripts — the actual logic is in `agent.py` + `gui_age
 ## Operation Protocol (MANDATORY for every action)
 
 These are hard requirements. Not suggestions. Every step in order.
+
+### TIMING & CONTEXT REPORTING (MANDATORY — NO EXCEPTIONS)
+
+**Every GUI task MUST report timing and context usage at the end.**
+
+This is enforced at two levels:
+
+1. **Script level**: `agent.py` prints `⏱ Completed (X.Xs)` automatically after every command.
+
+2. **Agent level**: When you finish a GUI task (whether using agent.py or direct cliclick), you MUST include in your final summary:
+   - **⏱ Total time**: from when you received the command to when you report back
+   - **📊 Context usage**: call `session_status` and report current context window usage (tokens used / total)
+   - **🔧 Actions taken**: number of screenshots, clicks, learns performed
+
+**Format:**
+```
+⏱ 45.2s | 📊 Context: 15k/1.0m (1.5%) | 🔧 3 screenshots, 2 clicks, 1 learn
+```
+
+**This applies even when you bypass agent.py and use cliclick directly.**
+**No exceptions. No "I forgot". Write it every time.**
 
 ### STEP 0: OBSERVE before anything
 

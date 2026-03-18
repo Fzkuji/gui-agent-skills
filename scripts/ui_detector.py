@@ -82,15 +82,16 @@ if let windowList = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[S
             })
 
     if app_name:
-        for w in windows:
-            if w["app"].lower() == app_name.lower():
-                return w
+        # Find all windows for this app, return the largest one
+        app_windows = [w for w in windows if w["app"].lower() == app_name.lower()]
+        if app_windows:
+            return max(app_windows, key=lambda w: w["w"] * w["h"])
     return windows[0] if windows else None
 
 
 def take_window_screenshot(window_id, out_path="/tmp/ui_detect_window.png"):
     """Capture a specific window by ID."""
-    subprocess.run(["screencapture", "-x", "-l", str(window_id), out_path],
+    subprocess.run(["/usr/sbin/screencapture", "-x", "-l", str(window_id), out_path],
                    check=True, timeout=5)
     return out_path
 
@@ -544,8 +545,10 @@ def main():
             print(f"  Annotated: {annotated_path}")
 
     if args.save:
-        out_dir = SKILL_DIR / "detected"
-        out_dir.mkdir(exist_ok=True)
+        # Save to per-app pages directory instead of global detected/
+        app_slug = args.app.lower().replace(" ", "_") if args.app else "unknown"
+        out_dir = SKILL_DIR / "memory" / "apps" / app_slug / "pages"
+        out_dir.mkdir(parents=True, exist_ok=True)
         with open(out_dir / "elements.json", "w") as f:
             json.dump(elements, f, ensure_ascii=False, indent=2)
         if annotated_path:

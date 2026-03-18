@@ -44,12 +44,29 @@ MEMORY_DIR = SKILL_DIR / "memory" / "apps"
 # ═══════════════════════════════════════════
 
 def get_window_bounds(app_name):
-    """Get window position and size. Returns (x, y, w, h) or None."""
+    """Get window position and size. Returns (x, y, w, h) or None.
+    
+    Selects the largest window if the app has multiple windows.
+    """
     try:
         r = subprocess.run(
             ["osascript", "-e",
-             f'tell application "System Events" to tell process "{app_name}" '
-             f'to return {{position, size}} of window 1'],
+             f'tell application "System Events" to tell process "{app_name}"\n'
+             f'  set best to missing value\n'
+             f'  set bestArea to 0\n'
+             f'  repeat with w in every window\n'
+             f'    set {{ww, wh}} to size of w\n'
+             f'    if ww * wh > bestArea then\n'
+             f'      set bestArea to ww * wh\n'
+             f'      set best to w\n'
+             f'    end if\n'
+             f'  end repeat\n'
+             f'  if best is not missing value then\n'
+             f'    set {{wx, wy}} to position of best\n'
+             f'    set {{ww, wh}} to size of best\n'
+             f'    return {{wx, wy, ww, wh}}\n'
+             f'  end if\n'
+             f'end tell'],
             capture_output=True, text=True, timeout=5
         )
         nums = [int(n.strip()) for n in r.stdout.split(",") if n.strip()]
@@ -144,7 +161,7 @@ def get_domain_from_url(url):
 
 
 def load_profile(app_name):
-    """Load app profile (component registry)."""
+    """Load app profile (component registry + click graph states)."""
     app_dir = get_app_dir(app_name)
     profile_path = app_dir / "profile.json"
     if profile_path.exists():
@@ -152,11 +169,64 @@ def load_profile(app_name):
             return json.load(f)
     return {
         "app": app_name,
-        "components": {},  # name -> {type, rel_x, rel_y, w, h, icon_file, label, ...}
-        "pages": {},       # page_name -> {components: [...], description}
+        "components": {},  # name -> {type, rel_x, rel_y, icon_file, label, ...}
+        "states": {},      # state_name -> {visible: [...], trigger, trigger_pos, disappeared, description}
         "last_updated": None,
-        "window_size": None,  # (w, h) when learned
+        "window_size": None,
     }
+
+
+def _find_nearest_text(icon_el, text_elements, max_dist=60):
+    """Find the nearest text element to an icon, to use as its name.
+
+    CONSERVATIVE: only matches text that overlaps or nearly overlaps the icon
+    (within max_dist retina pixels). This avoids false matches in dense UIs.
+
+    For icons without a nearby match, they stay unlabeled and the agent
+    identifies them later by viewing the cropped images.
+
+    All coordinates are in retina pixels (2x logical).
+
+    Returns the text label string, or None.
+    """
+    icon_cx = icon_el["cx"]
+    icon_cy = icon_el["cy"]
+    icon_w = icon_el.get("w", 0)
+    icon_h = icon_el.get("h", 0)
+
+    best = None
+    best_dist = max_dist
+
+    for t in text_elements:
+        label = t.get("label", "")
+        if not label or len(label) < 2:
+            continue
+        # Skip long text (likely content, not a UI label)
+        if len(label) > 15:
+            continue
+
+        t_cx = t["cx"]
+        t_cy = t["cy"]
+
+        # Only match if text significantly overlaps with the icon region
+        # (same bounding box or very close)
+        dy = abs(t_cy - icon_cy)
+        dx = abs(t_cx - icon_cx)
+        dist = (dx ** 2 + dy ** 2) ** 0.5
+
+        if dist < best_dist:
+            best_dist = dist
+            best = label
+
+    return best
+
+
+def assign_region(el, win_w, win_h):
+    """Stub — always returns 'default'. 
+    
+    State identification is done via click-graph matching, not preset regions.
+    """
+    return "default"
 
 
 def should_save_component(el, win_w, win_h):
@@ -212,6 +282,100 @@ def should_save_component(el, win_w, win_h):
 
     # Default: save it
     return True, "default"
+
+
+def identify_state(app_name, visible_text):
+    """Identify current state by matching visible text against known states.
+    
+    Each state is defined by which components are visible on screen.
+    The state with the highest match ratio is the current state.
+    
+    Args:
+        app_name: App name
+        visible_text: List of visible text strings from OCR
+        
+    Returns:
+        (state_name, match_ratio) or (None, 0)
+    """
+    profile = load_profile(app_name)
+    states = profile.get("states", {})
+    
+    if not states:
+        return None, 0
+    
+    # Convert visible_text to set for fast matching
+    visible_set = set(t.strip() for t in visible_text if t and t.strip())
+    
+    best_state = None
+    best_ratio = 0.0
+    
+    for state_name, state_data in states.items():
+        state_visible = set(state_data.get("visible", []))
+        if not state_visible:
+            continue
+        
+        # Count overlap
+        overlap = len(visible_set & state_visible)
+        ratio = overlap / len(state_visible)
+        
+        if ratio > best_ratio:
+            best_ratio = ratio
+            best_state = state_name
+    
+    return best_state, best_ratio
+
+
+def get_state_components(app_name, state_name):
+    """Get component names that are visible in a given state.
+    
+    Args:
+        app_name: App name
+        state_name: State name
+        
+    Returns:
+        list of component names (from state's "visible" list)
+    """
+    profile = load_profile(app_name)
+    states = profile.get("states", {})
+    
+    if state_name not in states:
+        return []
+    
+    return states[state_name].get("visible", [])
+
+
+def save_state(app_name, state_name, visible_texts, trigger=None, trigger_pos=None, disappeared=None, description=None):
+    """Save a state to the profile.
+    
+    Args:
+        app_name: App name
+        state_name: State name (e.g., "initial", "click:Settings")
+        visible_texts: List of component names/text visible in this state
+        trigger: Component name that triggered this state (for click:X states)
+        trigger_pos: [x, y] position where trigger was clicked
+        disappeared: List of component names that disappeared when entering this state
+        description: Optional human-readable description
+    """
+    profile = load_profile(app_name)
+    
+    if "states" not in profile:
+        profile["states"] = {}
+    
+    state_data = {
+        "visible": visible_texts,
+    }
+    
+    if trigger:
+        state_data["trigger"] = trigger
+    if trigger_pos:
+        state_data["trigger_pos"] = trigger_pos
+    if disappeared:
+        state_data["disappeared"] = disappeared
+    if description:
+        state_data["description"] = description
+    
+    profile["states"][state_name] = state_data
+    save_profile(app_name, profile)
 
 
 def save_profile(app_name, profile):
@@ -363,7 +527,7 @@ def match_all_components(app_name, window_img, threshold=0.8):
 # Learn: detect + save all components
 # ═══════════════════════════════════════════
 
-def learn_app(app_name, page_name="main"):
+def learn_app(app_name, page_name=None):
     """Detect all UI elements and save to memory.
 
     Flow:
@@ -371,11 +535,15 @@ def learn_app(app_name, page_name="main"):
     2. Run GPA-GUI-Detector + OCR
     3. Crop each element
     4. Save to profile with relative coordinates
+    5. Save "initial" state with all visible OCR texts
+    
+    Note: page_name parameter is kept for compatibility but ignored.
+          State identification happens through the click graph.
     """
     sys.path.insert(0, str(SCRIPT_DIR))
     import ui_detector
 
-    print(f"🧠 Learning {app_name} (page: {page_name})...")
+    print(f"🧠 Learning {app_name}...")
 
     # 1. Capture
     img_path, win_x, win_y, win_w, win_h = capture_window(app_name)
@@ -401,7 +569,8 @@ def learn_app(app_name, page_name="main"):
     img = cv2.imread(img_path)
 
     # 5. Save each element (with filtering + dedup + smart naming)
-    page_components = []
+    learned_components = []
+    visible_texts = []  # For initial state
     new_count = 0
     dup_count = 0
     skip_count = 0
@@ -422,20 +591,23 @@ def learn_app(app_name, page_name="main"):
             # Has text label → use it
             comp_name = el["label"].replace(" ", "_").replace("/", "-")[:30]
         else:
-            # No label → use "unlabeled_<region>_<position>" temporarily
-            # Will be renamed after LLM identification
-            rel_x = el["cx"] // 2
-            rel_y = el["cy"] // 2
-            # Guess region by position
-            if rel_x < 60:
-                region = "leftbar"
-            elif rel_y < 50:
-                region = "toolbar"
-            elif rel_y > 550:
-                region = "bottom"
+            # No label → find nearest text element to use as name
+            nearest_label = _find_nearest_text(el, text_elements)
+            if nearest_label:
+                comp_name = nearest_label.replace(" ", "_").replace("/", "-")[:30]
             else:
-                region = "main"
-            comp_name = f"unlabeled_{region}_{rel_x}_{rel_y}"
+                # Last resort: use "unlabeled_<region>_<position>"
+                rel_x = el["cx"] // 2
+                rel_y = el["cy"] // 2
+                if rel_x < 60:
+                    region = "leftbar"
+                elif rel_y < 50:
+                    region = "toolbar"
+                elif rel_y > 550:
+                    region = "bottom"
+                else:
+                    region = "main"
+                comp_name = f"unlabeled_{region}_{rel_x}_{rel_y}"
 
         # --- Check if already known (by similar position) ---
         is_new = True
@@ -475,6 +647,9 @@ def learn_app(app_name, page_name="main"):
         # Relative coordinates (logical pixels, relative to window top-left)
         rel_x = el["cx"] // 2  # retina → logical
         rel_y = el["cy"] // 2
+        
+        # Assign region
+        region = assign_region(el, win_w, win_h)
 
         comp_data = {
             "type": el["type"],
@@ -486,48 +661,93 @@ def learn_app(app_name, page_name="main"):
             "icon_file": icon_file,
             "label": el.get("label"),
             "confidence": el.get("confidence", 0),
-            "page": page_name,
+            "region": region,
             "learned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
         }
 
         profile["components"][comp_name] = comp_data
-        page_components.append(comp_name)
+        learned_components.append(comp_name)
+        
+        # Track visible text for initial state
+        if el.get("label"):
+            visible_texts.append(el.get("label"))
 
         if is_new:
             new_count += 1
 
-    # 6. Save page layout
-    profile["pages"][page_name] = {
-        "components": page_components,
-        "learned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "window_size": [win_w, win_h],
-    }
+    # 6. Save profile first (so save_state can load it with components)
+    profile["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+    save_profile(app_name, profile)
+    
+    # 7. Save "initial" state with ALL visible text (not just saved components)
+    all_visible = [t.get("label", "") for t in text_elements if t.get("label")]
+    if "initial" not in profile.get("states", {}):
+        save_state(
+            app_name, 
+            "initial", 
+            all_visible,
+            description="Main app view when first opened"
+        )
+        print(f"  📊 Created 'initial' state with {len(all_visible)} visible texts")
+    else:
+        save_state(app_name, "initial", all_visible, description="Main app view when first opened")
+        print(f"  📊 Updated 'initial' state with {len(all_visible)} visible texts")
+    
+    # 8. Reload profile (save_state updated it)
+    profile = load_profile(app_name)
 
-    # 7. Save annotated image
+    # 8. Save annotated image
     app_dir = get_app_dir(app_name)
     annotated = ui_detector.annotate_image(img_path, all_elements,
-                                            str(app_dir / f"pages/{page_name}_annotated.jpg"))
+                                            str(app_dir / "pages/annotated.jpg"))
 
-    # 8. Save profile
+    # 9. Save profile
     save_profile(app_name, profile)
 
-    print(f"  💾 Saved {len(page_components)} components ({new_count} new, {dup_count} dups, {skip_count} skipped)")
+    print(f"  💾 Saved {len(learned_components)} components ({new_count} new, {dup_count} dups, {skip_count} skipped)")
     if skip_reasons:
         print(f"     Skip reasons: {skip_reasons}")
 
-    # 9. Auto-cleanup: remove dynamic content
+    # 10. Auto-cleanup: remove dynamic content
     #    (timestamps, message previews, chat text, stickers)
     cleanup_count = auto_cleanup_dynamic(app_name)
     if cleanup_count > 0:
         print(f"  🧹 Auto-cleaned {cleanup_count} dynamic elements")
 
-    # 10. Report unlabeled icons that need identification
+    # 11. Report unlabeled icons for agent identification
     profile = load_profile(app_name)  # reload after cleanup
     unlabeled = [name for name, comp in profile["components"].items()
                  if name.startswith("unlabeled_")]
     if unlabeled:
-        print(f"  ⚠ {len(unlabeled)} unlabeled icons remain — need LLM identification")
-        print(f"    Run: python app_memory.py identify --app {app_name}")
+        # Collect image paths
+        unlabeled_paths = []
+        unlabeled_names = []
+        for name in sorted(unlabeled):
+            comp = profile["components"][name]
+            icon_path = app_dir / comp.get("icon_file", f"components/{name}.png")
+            if icon_path.exists():
+                unlabeled_paths.append(str(icon_path))
+                unlabeled_names.append(name)
+
+        # Output structured prompt for agent
+        print(f"\n{'='*60}")
+        print(f"⚠ ACTION REQUIRED: {len(unlabeled)} unlabeled components")
+        print(f"{'='*60}")
+        print(f"STEP 1: View images with `image` tool (max 20 per call):")
+        print(f"  IMAGES: {json.dumps(unlabeled_paths)}")
+        print(f"  NAMES:  {json.dumps(unlabeled_names)}")
+        print(f"STEP 2: For each image, identify what it shows.")
+        print(f"  - Read any text in the image")
+        print(f"  - Describe the icon/element")
+        print(f"  - ⚠ PRIVACY: If it contains personal info (username, email,")
+        print(f"    avatar, account details), DELETE it instead of renaming")
+        print(f"STEP 3: Rename each component:")
+        print(f"  python3 app_memory.py rename --app \"{app_name}\" --old <unlabeled_name> --new <actual_name>")
+        print(f"  Or DELETE private ones:")
+        print(f"  python3 app_memory.py delete --app \"{app_name}\" --component <name>")
+        print(f"STEP 4: When task is fully complete, cleanup remaining:")
+        print(f"  python3 agent.py cleanup --app \"{app_name}\"")
+        print(f"{'='*60}")
 
     print(f"  📁 {app_dir}")
     return True
@@ -585,9 +805,13 @@ def learn_site(app_name="Google Chrome", page_name="main"):
         if el.get("label"):
             comp_name = el["label"].replace(" ", "_").replace("/", "-")[:30]
         else:
-            rel_x = el["cx"] // 2
-            rel_y = el["cy"] // 2
-            comp_name = f"unlabeled_{rel_x}_{rel_y}"
+            nearest_label = _find_nearest_text(el, text_elements)
+            if nearest_label:
+                comp_name = nearest_label.replace(" ", "_").replace("/", "-")[:30]
+            else:
+                rel_x = el["cx"] // 2
+                rel_y = el["cy"] // 2
+                comp_name = f"unlabeled_{rel_x}_{rel_y}"
 
         # Dedup by position
         is_new = True
@@ -754,6 +978,8 @@ def auto_cleanup_dynamic(app_name):
 
 def detect_with_memory(app_name, threshold=0.8):
     """Detect elements, match against memory, report new/known.
+    
+    State-aware version: identifies current state and only matches state-specific components.
 
     Returns: (known_matches, unknown_elements, img_path)
     """
@@ -764,17 +990,42 @@ def detect_with_memory(app_name, threshold=0.8):
         return [], [], None
 
     img = cv2.imread(img_path)
+    
+    # Get visible text for state identification
+    import ui_detector
+    text_elements = ui_detector.detect_text(img_path)
+    visible_text = [t.get("label", "") for t in text_elements]
+    
+    # Identify current state
+    current_state, match_ratio = identify_state(app_name, visible_text)
+    if current_state:
+        print(f"  📊 Identified state: '{current_state}' ({match_ratio:.0%} match)")
+        # Get components for this state only
+        state_components = get_state_components(app_name, current_state)
+        print(f"  🎯 Matching {len(state_components)} state-specific components")
+    else:
+        print(f"  📊 Could not identify state, matching all components")
+        profile = load_profile(app_name)
+        state_components = list(profile.get("components", {}).keys())
 
-    # Match all known components
-    known = match_all_components(app_name, img, threshold)
+    # Match only relevant components
+    known = []
+    for comp_name in state_components:
+        found, rx, ry, conf = match_component(app_name, comp_name, img, threshold)
+        if found:
+            known.append((comp_name, rx, ry, conf))
+    
     print(f"  🔗 Matched {len(known)} known components")
     for name, rx, ry, conf in known:
         print(f"    ✅ {name} ({rx},{ry}) conf={conf}")
+    
+    # Report match rate for this state
+    if state_components:
+        match_rate = len(known) / len(state_components)
+        print(f"  📊 State match rate: {match_rate:.1%} ({len(known)}/{len(state_components)})")
 
     # Detect new elements
-    import ui_detector
     icon_elements, _, _ = ui_detector.detect_icons(img_path, conf=0.1, iou=0.3)
-    text_elements = ui_detector.detect_text(img_path)
     all_elements = ui_detector.merge_elements(icon_elements, text_elements)
 
     # Filter out known (matched) elements
@@ -902,13 +1153,17 @@ def main():
     # list
     p_list = sub.add_parser("list", help="List known components")
     p_list.add_argument("--app", required=True)
-    p_list.add_argument("--page", help="Filter by page")
 
     # rename
     p_rename = sub.add_parser("rename", help="Rename a component (after LLM identifies it)")
     p_rename.add_argument("--app", required=True)
     p_rename.add_argument("--old", required=True, help="Current component name")
     p_rename.add_argument("--new", required=True, help="New descriptive name")
+
+    # delete
+    p_delete = sub.add_parser("delete", help="Delete a component (e.g. privacy-sensitive)")
+    p_delete.add_argument("--app", required=True)
+    p_delete.add_argument("--component", required=True, help="Component name to delete")
 
     # cleanup
     p_cleanup = sub.add_parser("cleanup", help="Remove duplicate and unimportant components")
@@ -958,9 +1213,6 @@ def main():
     elif args.command == "list":
         profile = load_profile(args.app)
         comps = profile["components"]
-        if args.page:
-            page_comps = profile["pages"].get(args.page, {}).get("components", [])
-            comps = {k: v for k, v in comps.items() if k in page_comps}
         print(f"App: {args.app} ({len(comps)} components)")
         for name, data in sorted(comps.items(), key=lambda x: (x[1].get("rel_y", 0), x[1].get("rel_x", 0))):
             label = data.get("label", "")
@@ -981,19 +1233,40 @@ def main():
             new_icon = app_dir / "components" / f"{safe_new}.png"
             if old_icon.exists():
                 old_icon.rename(new_icon)
-                comp["icon_file"] = f"icons/{safe_new}.png"
+                comp["icon_file"] = f"components/{safe_new}.png"
 
             comp["label"] = args.new
             profile["components"][safe_new] = comp
 
-            # Update page references
-            for page in profile["pages"].values():
-                comps = page.get("components", [])
-                if args.old in comps:
-                    comps[comps.index(args.old)] = safe_new
+            # Update state references
+            for state_data in profile.get("states", {}).values():
+                for key in ["visible", "disappeared"]:
+                    if args.old in state_data.get(key, []):
+                        lst = state_data[key]
+                        lst[lst.index(args.old)] = safe_new
 
             save_profile(args.app, profile)
             print(f"✅ Renamed '{args.old}' → '{safe_new}'")
+
+    elif args.command == "delete":
+        profile = load_profile(args.app)
+        comp_name = args.component
+        if comp_name not in profile["components"]:
+            print(f"❌ Component '{comp_name}' not found")
+        else:
+            comp = profile["components"].pop(comp_name)
+            app_dir = get_app_dir(args.app)
+            # Delete icon file
+            icon_path = app_dir / comp.get("icon_file", f"components/{comp_name}.png")
+            if icon_path.exists():
+                icon_path.unlink()
+            # Remove from state references
+            for state_data in profile.get("states", {}).values():
+                for key in ["visible", "disappeared"]:
+                    if comp_name in state_data.get(key, []):
+                        state_data[key].remove(comp_name)
+            save_profile(args.app, profile)
+            print(f"🗑 Deleted '{comp_name}'")
 
     elif args.command == "cleanup":
         profile = load_profile(args.app)

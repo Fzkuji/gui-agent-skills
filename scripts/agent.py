@@ -87,31 +87,30 @@ def app_has_memory(app_name):
     return len(data.get("components", {})) > 5
 
 
-def get_known_pages(app_name):
-    """Get list of learned pages for an app."""
+def get_known_states(app_name):
+    """Get list of learned states for an app."""
     app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_")
     profile_path = app_dir / "profile.json"
     if not profile_path.exists():
         return []
     with open(profile_path) as f:
         profile = json.load(f)
-    return list(profile.get("pages", {}).keys())
+    return list(profile.get("states", {}).keys())
 
 
 def eval_app(app_name, workflow=None, required_components=None):
-    """Smart check: decide if memory is sufficient for current workflow.
+    """Smart check: decide if memory is sufficient.
 
-    Decision logic based on WORKFLOW, not just app:
-    1. App never learned → full learn
-    2. App learned, but workflow/page is new → learn this page
-    3. App learned, workflow known → template match to verify
-       - Match rate ≥ 80% → memory good, skip learn
-       - Match rate < 80% → incremental learn (update)
+    Decision logic based on STATE:
+    1. App never learned → full learn (creates "initial" state)
+    2. App learned → check if memory is fresh
+       - Has states? → memory good
+       - No states or empty? → re-learn
+    3. Required components missing? → re-learn
 
     Args:
         app_name: App name
-        workflow: Task/page name (e.g., "smart_scan", "malware_removal", "send_message")
-                 If None, checks overall app memory.
+        workflow: Optional workflow name (kept for compatibility, not used for state logic)
         required_components: Specific components needed for this task.
 
     Returns:
@@ -120,108 +119,51 @@ def eval_app(app_name, workflow=None, required_components=None):
     app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_")
     profile_path = app_dir / "profile.json"
 
-    # Case 1: App never learned → learn → plan
+    # Case 1: App never learned → learn (creates initial state)
     if not profile_path.exists():
-        page = workflow or "main"
-        print(f"  🧠 No memory for {app_name}, learning (page: {page})...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", page], timeout=30)
+        print(f"  🧠 No memory for {app_name}, learning...")
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
         print(out)
-        
-        # After learn: plan
-        plan, analysis = plan_workflow(app_name, {"workflow": workflow})
-        return code == 0, {"action": "learn_and_plan", "page": page, "analysis": analysis}
+        return code == 0, {"action": "learn"}
 
     with open(profile_path) as f:
         profile = json.load(f)
 
-    known_pages = list(profile.get("pages", {}).keys())
-
-    # Case 2: Workflow/page is new (never learned this page) → learn → plan
-    if workflow and workflow not in known_pages:
-        print(f"  🆕 New workflow '{workflow}' for {app_name} (known pages: {known_pages})")
-        print(f"  🧠 Learning new page...")
-        activate_app(app_name)
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", workflow], timeout=30)
-        print(out)
-        
-        # After learn: plan
-        plan, analysis = plan_workflow(app_name, {"workflow": workflow})
-        return code == 0, {"action": "learn_and_plan", "page": workflow, "analysis": analysis}
-
-    # Case 3: Workflow known → verify via template match
+    # Case 2: Check if we have components and states
     total_components = len(profile.get("components", {}))
-    if total_components == 0:
-        page = workflow or "main"
-        print(f"  🧠 Empty memory for {app_name}, learning...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", page], timeout=30)
+    total_states = len(profile.get("states", {}))
+    
+    if total_components == 0 or total_states == 0:
+        print(f"  🧠 Empty memory for {app_name} (components: {total_components}, states: {total_states}), learning...")
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
         print(out)
-        
-        # After learn: plan
-        plan, analysis = plan_workflow(app_name, {"workflow": page})
-        return code == 0, {"action": "learn_and_plan", "page": page, "analysis": analysis}
+        return code == 0, {"action": "learn"}
 
-    activate_app(app_name)
-    out, code = run_script("app_memory.py", ["detect", "--app", app_name], timeout=20)
-
-    # Parse results
-    matched_count = out.count("✅")
-    unknown_count = 0
-    for line in out.split("\n"):
-        if "unknown" in line.lower():
-            try:
-                unknown_count = int(line.split()[-2])
-            except:
-                pass
-
-    match_rate = matched_count / max(total_components, 1)
-
-    info = {
-        "total": total_components,
-        "matched": matched_count,
-        "unknown": unknown_count,
-        "match_rate": round(match_rate, 2),
-        "workflow": workflow,
-        "known_pages": known_pages,
-    }
-
-    # Check required components
+    # Case 3: Check if required components exist
     missing_required = []
     if required_components:
         for comp in required_components:
             if comp not in profile["components"]:
                 missing_required.append(comp)
-            elif f"✅ {comp}" not in out:
-                missing_required.append(comp)
 
-    info["missing_required"] = missing_required
-
-    # Decision
-    if match_rate >= 0.8 and not missing_required:
-        print(f"  ✅ Memory is current ({matched_count}/{total_components} matched, {match_rate:.0%})")
-        info["action"] = "skip"
-        return True, info
-    else:
-        reason = []
-        if match_rate < 0.8:
-            reason.append(f"low match rate ({match_rate:.0%})")
-        if missing_required:
-            reason.append(f"missing: {missing_required}")
-
-        page = workflow or "main"
-        print(f"  🔄 Memory outdated ({', '.join(reason)}), updating page '{page}'...")
-        out, code = run_script("app_memory.py", ["learn", "--app", app_name, "--page", page], timeout=30)
+    if missing_required:
+        print(f"  🔄 Missing components: {missing_required}, re-learning...")
+        activate_app(app_name)
+        out, code = run_script("app_memory.py", ["learn", "--app", app_name], timeout=30)
         print(out)
-        info["action"] = "incremental_learn"
-        return code == 0, info
+        return code == 0, {"action": "learn", "missing": missing_required}
+
+    print(f"  ✅ Memory ready: {total_components} components, {total_states} states")
+    return True, {"action": "skip", "components": total_components, "states": total_states}
 
 
 def ensure_app_ready(app_name, workflow=None, required_components=None):
-    """Ensure app is ready for the given workflow.
+    """Ensure app is ready.
 
-    Workflow-based revise:
-    - App not learned → full learn
-    - New workflow/page → learn new page
-    - Known workflow → verify memory, update if stale
+    State-based approach:
+    - App not learned → full learn (creates initial state + components)
+    - App learned → check memory freshness
+    - Missing components → re-learn
     """
     ready, info = eval_app(app_name, workflow, required_components)
     return ready
@@ -243,14 +185,14 @@ def detect_workflow_conflict(app_name, expected_state, actual_state):
 
 
 def plan_workflow(app_name, context=None, error_info=None):
-    """Analyze and create a workflow plan.
+    """Analyze app state and components.
 
-    If error_info is provided, analyze why it failed and create new plan.
+    If error_info is provided, analyze why it failed.
     
     Returns: (plan, analysis)
     """
     reason = "after error" if error_info else "after learn"
-    print(f"  📝 Planning {app_name} ({reason})...")
+    print(f"  📝 Analyzing {app_name} ({reason})...")
 
     # Load profile (already learned)
     app_dir = SKILL_DIR / "memory" / "apps" / app_name.lower().replace(" ", "_")
@@ -263,17 +205,17 @@ def plan_workflow(app_name, context=None, error_info=None):
         profile = json.load(f)
 
     components = profile.get("components", {})
-    pages = profile.get("pages", {})
+    states = profile.get("states", {})
 
     analysis = {
         "app": app_name,
         "error": error_info,
         "components": list(components.keys()),
-        "pages": list(pages.keys()),
+        "states": list(states.keys()),
         "context": context or {}
     }
 
-    print(f"  📋 Found {len(components)} components, {len(pages)} pages")
+    print(f"  📋 Found {len(components)} components, {len(states)} states")
 
     return None, analysis
 
@@ -454,7 +396,17 @@ def observe_state(app_name, include_yolo=False):
                 state["window_screenshot"] = "/tmp/_observe_window.jpg"
         except:
             pass
-
+    
+    # 7. Identify current state (click-graph matching)
+    try:
+        from app_memory import identify_state
+        current_state, match_ratio = identify_state(app_name, state.get("visible_text", []))
+        if current_state:
+            state["current_state"] = current_state
+            state["state_match_ratio"] = match_ratio
+    except:
+        pass
+    
     return state
 
 
@@ -502,7 +454,7 @@ def load_workflow(app_name, workflow_name):
 
 
 def update_app_summary(app_name):
-    """Update the app-level summary — overview of all known workflows and components.
+    """Update the app-level summary — overview of all known states, workflows and components.
 
     This summary acts as a skill reference: any agent reading it knows
     what the app can do and how to operate it.
@@ -515,16 +467,16 @@ def update_app_summary(app_name):
         "updated": time.strftime("%Y-%m-%d %H:%M:%S"),
         "workflows": {},
         "component_count": 0,
-        "pages": [],
+        "states": [],
     }
 
-    # Load profile for components/pages
+    # Load profile for components/states
     profile_path = app_dir / "profile.json"
     if profile_path.exists():
         with open(profile_path) as f:
             profile = json.load(f)
         summary["component_count"] = len(profile.get("components", {}))
-        summary["pages"] = list(profile.get("pages", {}).keys())
+        summary["states"] = list(profile.get("states", {}).keys())
 
     # Load all workflows
     workflows_dir = app_dir / "workflows"
@@ -554,10 +506,12 @@ def explore(app_name, question=None):
     state = observe_state(app_name)
     screenshot_path = state.get("window_screenshot", "/tmp/_observe_s.png")
 
-    # Save to accessible location
+    # Save to per-app pages directory
     import shutil
-    output = str(SKILL_DIR / "detected" / "explore.jpg")
-    os.makedirs(os.path.dirname(output), exist_ok=True)
+    app_slug = app_name.lower().replace(" ", "_")
+    pages_dir = SKILL_DIR / "memory" / "apps" / app_slug / "pages"
+    os.makedirs(str(pages_dir), exist_ok=True)
+    output = str(pages_dir / "explore.jpg")
     shutil.copy(screenshot_path, output)
 
     state["screenshot_path"] = output
@@ -660,7 +614,7 @@ def safe_click(app_name, element_text, state=None, exact=False, position="any"):
     """
     if state is None:
         state = observe_state(app_name)
-
+    
     exists, cx, cy = verify_element_exists(app_name, element_text, state,
                                             exact=exact, position=position)
     if not exists:
@@ -676,13 +630,57 @@ def safe_click(app_name, element_text, state=None, exact=False, position="any"):
     changed = old_texts != new_texts
     if not changed:
         print(f"  ⚠ POST-CLICK: screen did not change after clicking '{element_text}' at ({cx},{cy})", flush=True)
-        # Save screenshot for agent to inspect
+        # Save screenshot to per-app pages directory
         ss = new_state.get("window_screenshot", "/tmp/_observe_s.png")
         import shutil
-        output = str(SKILL_DIR / "detected" / "post_click.jpg")
-        os.makedirs(os.path.dirname(output), exist_ok=True)
+        app_slug = app_name.lower().replace(" ", "_")
+        pages_dir = SKILL_DIR / "memory" / "apps" / app_slug / "pages"
+        os.makedirs(str(pages_dir), exist_ok=True)
+        output = str(pages_dir / "post_click.jpg")
         shutil.copy(ss, output)
         return False, f"Clicked ({cx},{cy}) but screen unchanged — check {output}"
+    
+    # Save new state after click
+    try:
+        sys.path.insert(0, str(SCRIPT_DIR))
+        from app_memory import save_state, load_profile, learn_app
+        
+        before_texts = set(state.get("visible_text", []))
+        after_texts = set(new_state.get("visible_text", []))
+        
+        # What appeared and disappeared
+        appeared = sorted(after_texts - before_texts)
+        disappeared = sorted(before_texts - after_texts)
+        
+        if appeared or disappeared:
+            print(f"  📝 State changed: +{len(appeared)} texts appeared, -{len(disappeared)} disappeared", flush=True)
+            if appeared:
+                print(f"     Appeared: {appeared[:5]}", flush=True)
+            if disappeared:
+                print(f"     Disappeared: {disappeared[:5]}", flush=True)
+            
+            # Save new state as "click:ElementName"
+            comp_name = element_text.replace(" ", "_").replace("/", "-")[:30]
+            state_name = f"click:{comp_name}"
+            
+            save_state(
+                app_name,
+                state_name,
+                list(after_texts),
+                trigger=element_text,
+                trigger_pos=[cx, cy],
+                disappeared=disappeared,
+                description=f"State after clicking '{element_text}'"
+            )
+            print(f"  📊 Saved state '{state_name}' with {len(after_texts)} visible texts", flush=True)
+            
+            # Learn new components that appeared
+            print(f"  📸 Learning new components...", flush=True)
+            learn_app(app_name)
+    except Exception as e:
+        import traceback
+        print(f"  ⚠ Could not save state: {e}", flush=True)
+        traceback.print_exc()
 
     return True, f"Clicked '{element_text}' at ({cx},{cy}), state changed ✅"
 
@@ -972,7 +970,54 @@ ACTIONS = {
         "optional": ["app"],
         "desc": "Screenshot and OCR current screen",
     },
+    "cleanup": {
+        "fn": lambda app_name: _cleanup_unlabeled(app_name),
+        "args": ["app"],
+        "desc": "Remove unlabeled components (call after agent finishes identifying)",
+    },
 }
+
+
+def _cleanup_unlabeled(app_name):
+    """Remove unlabeled components from app memory after workflow completes."""
+    app_slug = app_name.lower().replace(" ", "_")
+    app_dir = SKILL_DIR / "memory" / "apps" / app_slug
+    components_dir = app_dir / "components"
+    profile_path = app_dir / "profile.json"
+
+    if not components_dir.exists():
+        return
+
+    # Find and remove unlabeled image files
+    removed = []
+    for f in components_dir.iterdir():
+        if f.name.startswith("unlabeled_") and f.suffix == ".png":
+            f.unlink()
+            removed.append(f.name)
+
+    if not removed:
+        return
+
+    # Also remove from profile.json
+    if profile_path.exists():
+        import json
+        with open(profile_path, "r") as fh:
+            profile = json.load(fh)
+        if "components" in profile:
+            for name in removed:
+                key = name.replace(".png", "")
+                profile["components"].pop(key, None)
+            # Also clean page component lists
+            for page_info in profile.get("pages", {}).values():
+                if "components" in page_info:
+                    page_info["components"] = [
+                        c for c in page_info["components"]
+                        if not c.startswith("unlabeled_")
+                    ]
+            with open(profile_path, "w") as fh:
+                json.dump(profile, fh, ensure_ascii=False, indent=2)
+
+    print(f"  🧹 Cleaned {len(removed)} unlabeled components from {app_name}")
 
 
 def main():
@@ -1004,6 +1049,9 @@ def main():
     action_name = args.action.lower()
 
     if action_name in ACTIONS:
+        import time as _time
+        _start_time = _time.time()
+        
         action_info = ACTIONS[action_name]
         fn = action_info["fn"]
 
@@ -1027,10 +1075,18 @@ def main():
             kwargs["app_name"] = kwargs.pop("app")
 
         result = fn(**kwargs)
+        _elapsed = _time.time() - _start_time
+        if _elapsed < 60:
+            _time_str = f"{_elapsed:.1f}s"
+        else:
+            _time_str = f"{_elapsed/60:.1f}min"
+        
         if result is True:
-            print("\n✅ Done")
+            print(f"\n✅ Done ({_time_str})")
         elif result is False:
-            print("\n❌ Failed")
+            print(f"\n❌ Failed ({_time_str})")
+        else:
+            print(f"\n⏱ Completed ({_time_str})")
     else:
         print(f"Unknown action: {action_name}")
         print(f"Available: {', '.join(ACTIONS.keys())}")
