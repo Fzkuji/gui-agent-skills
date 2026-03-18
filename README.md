@@ -407,5 +407,5 @@ If you find GUIClaw useful in your research, please cite:
 ```
 
 <p align="center">
-  <sub>Built with 🦞 by <a href="https://github.com/Fzkuji">Zichuan Fu</a> · Powered by <a href="https://github.com/openclaw/openclaw">OpenClaw</a></sub>
+  <sub>Built with 🦞 by the GUIClaw team · Powered by <a href="https://github.com/openclaw/openclaw">OpenClaw</a></sub>
 </p>
