@@ -274,20 +274,33 @@ def observe_state(app_name):
     bounds = get_window_bounds(app_name)
     state["window"] = bounds  # (x, y, w, h) or None
 
-    # 4. Screenshot → resize to logical (982x1512) → OCR
-    #    Resized screenshot coords = screen logical coords directly.
-    #    Do NOT use retina fullscreen (3024x1964) — OCR will timeout.
+    # 4. Screenshot (retina) → OCR on original retina image → coords ÷2 = logical
+    #    IMPORTANT: Do NOT resize before OCR. Resized images give wrong coordinates.
+    #    Use ui_detector.detect_text() which handles retina coords correctly.
     subprocess.run(["/usr/sbin/screencapture", "-x", "/tmp/_observe.png"],
                    capture_output=True, timeout=5)
+    # Also save resized version for explore/display
     subprocess.run(["sips", "-z", "982", "1512", "/tmp/_observe.png",
                     "--out", "/tmp/_observe_s.png"],
                    capture_output=True, timeout=5)
 
-    # 5. OCR — coords are screen logical pixels (matching cliclick)
+    # 5. OCR on ORIGINAL retina image → divide coords by 2 for logical pixels
     sys.path.insert(0, str(SCRIPT_DIR))
     try:
-        from gui_agent import ocr_find
-        all_text = ocr_find("", img_path="/tmp/_observe_s.png")
+        import ui_detector
+        raw_text = ui_detector.detect_text("/tmp/_observe.png")
+        # Convert retina coords to logical (screen) coords
+        all_text = []
+        for t in raw_text:
+            all_text.append({
+                "text": t.get("label", ""),
+                "cx": t.get("cx", 0) // 2,
+                "cy": t.get("cy", 0) // 2,
+                "x": t.get("x", 0) // 2,
+                "y": t.get("y", 0) // 2,
+                "w": t.get("w", 0) // 2,
+                "h": t.get("h", 0) // 2,
+            })
 
         # Filter to target window area
         if bounds:
