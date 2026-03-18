@@ -315,12 +315,13 @@ def observe_state(app_name):
                     "--out", "/tmp/_observe_s.png"],
                    capture_output=True, timeout=5)
 
-    # 5. OCR on ORIGINAL retina image → divide coords by 2 for logical pixels
+    # 5. Detection: OCR + YOLO (both on original retina, auto-convert to logical)
     sys.path.insert(0, str(SCRIPT_DIR))
     try:
         import ui_detector
+
+        # OCR: text elements
         raw_text = ui_detector.detect_text("/tmp/_observe.png", return_logical=True)
-        # detect_text auto-converts retina→logical, coords ready for cliclick
         all_text = []
         for t in raw_text:
             all_text.append({
@@ -331,7 +332,29 @@ def observe_state(app_name):
                 "y": t.get("y", 0),
                 "w": t.get("w", 0),
                 "h": t.get("h", 0),
+                "type": "text",
             })
+
+        # YOLO: icon/button elements
+        try:
+            icon_elements, img_w, img_h = ui_detector.detect_icons(
+                "/tmp/_observe.png", conf=0.2, iou=0.3)
+            scale = get_retina_scale() if 'get_retina_scale' in dir() else (2 if img_w > 2000 else 1)
+            for el in icon_elements:
+                all_text.append({
+                    "text": "",  # icons have no text
+                    "cx": el.get("cx", 0) // scale,
+                    "cy": el.get("cy", 0) // scale,
+                    "x": el.get("x", 0) // scale,
+                    "y": el.get("y", 0) // scale,
+                    "w": el.get("w", 0) // scale,
+                    "h": el.get("h", 0) // scale,
+                    "type": "icon",
+                    "confidence": el.get("confidence", 0),
+                })
+            state["icon_count"] = len(icon_elements)
+        except:
+            state["icon_count"] = 0
 
         # Filter to target window area
         if bounds:
@@ -395,18 +418,19 @@ def explore(app_name, question=None):
     return state
 
 
-def find_element_in_window(element_text, state, exact=False, position="any"):
+def find_element_in_window(element_text, state, exact=False, position="any",
+                           element_type=None, min_rel_y=None):
     """Find an element in the target window.
 
     Args:
-        element_text: text to search for
+        element_text: text to search for. Use "" to find icons by position.
         state: from observe_state()
         exact: if True, match exact text only (not substring).
-               "Scan" won't match "Deep Scan" or "Smart Scan".
         position: "any", "bottom", "top", "left", "right"
-                  Filters by position within the window.
+        element_type: "text", "icon", or None for both
+        min_rel_y: minimum relative y position (0.0-1.0). Use to skip toolbar/search area.
 
-    Returns: list of matching elements [{text, cx, cy}, ...]
+    Returns: list of matching elements [{text, cx, cy, type}, ...]
     """
     bounds = state.get("window")
     results = []
@@ -415,13 +439,18 @@ def find_element_in_window(element_text, state, exact=False, position="any"):
         text = el.get("text", "")
         cx, cy = el.get("cx", 0), el.get("cy", 0)
 
-        # Text matching
-        if exact:
-            if text.strip() != element_text.strip():
-                continue
-        else:
-            if element_text.lower() not in text.lower():
-                continue
+        # Type filter
+        if element_type and el.get("type") != element_type:
+            continue
+
+        # Text matching (skip for icon-only search)
+        if element_text:
+            if exact:
+                if text.strip() != element_text.strip():
+                    continue
+            else:
+                if element_text.lower() not in text.lower():
+                    continue
 
         # Window bounds check
         if bounds:
@@ -432,6 +461,10 @@ def find_element_in_window(element_text, state, exact=False, position="any"):
             # Position filter within window
             rel_y = (cy - wy) / wh  # 0.0 = top, 1.0 = bottom
             rel_x = (cx - wx) / ww
+
+            # min_rel_y filter (skip toolbar/search area)
+            if min_rel_y is not None and rel_y < min_rel_y:
+                continue
             if position == "bottom" and rel_y < 0.7:
                 continue
             elif position == "top" and rel_y > 0.3:
