@@ -21,12 +21,11 @@ python3 scripts/agent.py learn --app AppName
 ```
 1. Activate app, ensure window ≥ 800x600
 2. agent.py runs learn:
-   a. Captures window screenshot (screencapture -l <windowID>)
+   a. Takes full-screen screenshot, crops window region
    b. Runs GPA-GUI-Detector (YOLO) → icons, buttons, UI elements
-   c. Runs Apple Vision OCR → text labels, menus
-   d. Merges results with IoU dedup
-   e. Crops each element → saves to memory/apps/<appname>/components/
-   f. Reports unlabeled icons
+   c. Merges results with IoU dedup
+   d. Crops each element → saves to memory/apps/<appname>/components/
+   e. Reports unlabeled icons
 3. YOU identify all components:
    a. Use `image` tool to view each cropped image (**one at a time** for accuracy)
    b. For each: read text, describe icon, determine actual name
@@ -40,6 +39,10 @@ python3 scripts/agent.py learn --app AppName
    c. Keep all stable UI elements (no privacy filtering needed — data stays local)
 5. Result: ~20-30 named, fixed UI components per page
 ```
+
+**Important**: Components are cropped from full-screen screenshots so they match
+perfectly when doing full-screen template matching later. This is why `capture_window`
+uses screencapture (full screen) + crop, NOT `screencapture -l <windowID>`.
 
 `_find_nearest_text` is a hint, not truth — always verify by viewing the cropped image.
 

@@ -1,6 +1,6 @@
 ---
 name: gui-observe
-description: "Observe current screen state before any GUI action. Screenshot, OCR, identify app/page/state, detect blocking dialogs."
+description: "Observe current screen state before any GUI action. Full-screen screenshot + visual analysis to identify app, page, state, and blocking dialogs."
 ---
 
 # Observe — Know Before You Act
@@ -10,50 +10,59 @@ Before ANY GUI task, observe the current state. Do not assume anything from last
 ## Steps
 
 1. **Record baseline** — call `session_status`, note context size for later reporting
-2. **Screenshot the target window**:
-   ```bash
-   python3 scripts/agent.py read_screen --app AppName
+2. **Take full-screen screenshot**:
+   ```python
+   from platform_input import screenshot
+   screenshot("/tmp/observe.png")
    ```
-3. **Assess state**:
-   - What app is in the foreground? Is the target app visible?
-   - What page/state is the app in? (match against known fingerprints)
+3. **Analyze with `image` tool** — ask:
+   - What app is in the foreground? (check menu bar)
+   - Is the target app visible? Where is its window?
+   - What page/state is the app in?
    - Any popups, dialogs, overlays blocking?
-4. **Decide**: proceed to act, or need to dismiss/navigate first?
+4. **Template match known components** to confirm state:
+   ```python
+   from app_memory import match_on_fullscreen
+   found, x, y, conf = match_on_fullscreen('AppName', 'component_name')
+   ```
+5. **Decide**: proceed to act, or need to dismiss/navigate first?
 
 ## Coordinate System
 
-- **Screen**: top-left origin (0,0), logical pixels (Retina physical ÷ scale factor)
-- **Window**: relative to window's top-left corner
-- **Retina**: screenshots may be 2x+ physical pixels; compute scale dynamically (`screenshot_px / window_logical_px`)
-- **cliclick**: uses screen logical pixels, integer only
-- **Formula**: `screen_x = window_x + (retina_x / scale_x)`, `screen_y = window_y + (retina_y / scale_y)`
+- **Full-screen screenshot**: physical pixels (e.g., 3024x1964 on Retina 2x)
+- **Logical screen**: physical ÷ 2 (e.g., 1512x982)
+- **pynput/click_at**: uses logical screen coordinates
+- **Template match**: `match_on_fullscreen` returns logical coordinates directly — use as-is
+- **No window offset needed**: full-screen matching eliminates offset bugs
 
 ## Window Management
 
-```bash
-# Get window bounds
-osascript -e 'tell application "System Events" to tell process "AppName" to return {position, size} of window 1'
+```python
+from platform_input import activate_app, get_window_bounds
 
-# Get window ID (uses Swift CGWindowListCopyWindowInfo — see ui_detector.py)
+# Activate (bring to front)
+activate_app("AppName")
 
-# Capture specific window only
-screencapture -x -l <windowID> output.png
-
-# Activate app
-osascript -e 'tell application "AppName" to activate'
+# Get bounds (logical coords)
+x, y, w, h = get_window_bounds("AppName")
 ```
 
-## Page Identification
+osascript is allowed ONLY for read-only queries (bounds, frontmost check, URLs).
+Never use osascript for clicking, typing, or any input.
 
-1. OCR the screen → get visible text
-2. Match against known page fingerprints in profile.json
-3. Identify current page (main, settings, etc.)
-4. Only match components belonging to that page
+## State Identification
+
+1. Screenshot full screen
+2. Analyze with `image` tool (understand what's on screen)
+3. Template match known components to confirm state programmatically
+4. Match against known page fingerprints if available
 
 ## Detection Stack
 
-| Detector | Finds | Speed | Best for |
-|----------|-------|-------|----------|
-| **Template Match** | Previously seen components | 0.3s | Known elements (conf ≈ 1.0) |
-| **GPA-GUI-Detector (YOLO)** | Icons, buttons, UI elements | 0.3s | Unknown buttons/controls |
-| **Apple Vision OCR** | Text (Chinese + English) | 1.6s | Labels, menus, content |
+| Detector | Purpose | Speed |
+|----------|---------|-------|
+| **Template Match** (full screen) | Click coordinates for known components | 0.3s, conf ≈ 1.0 |
+| **`image` tool** (vision model) | Understand what's on screen, verify state | ~2s |
+| **GPA-GUI-Detector (YOLO)** | Discover unknown UI elements during learn | 0.3s |
+
+**Key rule**: Template match → click coordinates. Image tool → understanding. Never the other way around.

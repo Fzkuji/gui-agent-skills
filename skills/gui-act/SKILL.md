@@ -40,21 +40,29 @@ This is NOT optional. Every single click gets a before/after screenshot.
 python3 scripts/agent.py click --app AppName --component ButtonName
 ```
 
-Manual flow:
+This does full-screen template matching automatically:
 ```
-1. Capture window screenshot
-2. Template match against saved icon (threshold=0.8)
-3. If matched (conf > 0.8):
-   a. Get relative coords from match
-   b. Convert: screen = window_pos + relative
-   c. Verify: within window bounds?
-   d. Click: cliclick c:<screen_x>,<screen_y>
-4. If not matched:
-   a. Run full detection (YOLO + OCR)
-   b. LLM identifies target
-   c. Save new component (auto-learn)
-   d. Click
+1. Take full-screen screenshot (before)
+2. Template match component on full screen → screen logical coordinates
+3. If matched (conf > 0.7): click at logical coordinates
+4. Take full-screen screenshot (after)
+5. Verify screen changed + correct app still in front
+6. If not matched → learn the app, then retry
 ```
+
+### For elements NOT in memory (dynamic content):
+
+```
+1. Screenshot full screen
+2. Crop the relevant region (e.g., search results area)
+3. Use `image` tool on crop to identify what's there
+4. Calculate screen coordinates: crop_origin + element_position_in_crop
+5. Click at calculated coordinates
+6. Screenshot to verify
+```
+
+**NEVER ask the `image` tool for coordinates on a full screenshot.** Vision models
+can't reliably pinpoint pixels on large images. Always crop first, then analyze.
 
 ## Input Methods (via platform_input.py)
 
@@ -138,5 +146,5 @@ python3 scripts/agent.py wait_for --app AppName --component ComponentName
 
 - **Autocomplete fields** (e.g., station selectors): typing alone is NOT enough — must click the dropdown suggestion
 - **Chinese input in web forms**: System IME interferes with autocomplete. Switch to English, type pinyin, let website autocomplete handle it
-- **Cmd+V in web forms**: May garble text. Use `cliclick t:text` for ASCII/pinyin
+- **Cmd+V in web forms**: May garble text. Use `type_text("text")` for ASCII/pinyin
 - **Date pickers**: Usually need calendar UI clicks, not typed dates

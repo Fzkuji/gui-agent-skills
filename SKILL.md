@@ -107,25 +107,25 @@ Compare `session_status` from STEP 0 vs now.
 ## Key Principles
 
 1. **Vision-driven, no shortcuts** — every GUI interaction goes through the visual pipeline (screenshot → detect → match → click). Do not use system commands (`open <url>`, `osascript tell app to set URL`, CLI tools) to manipulate app state. Only allowed: `activate` (bring window to front), `screencapture` (take screenshot), `platform_input.py` (click/type via pynput after visual detection provides coordinates). **Screenshot before AND after every click.**
-2. **Memory first, detect second** — template match before YOLO+OCR
-3. **Template > OCR > YOLO > LLM** — cheapest method first
-4. **Relative coordinates** — all positions relative to window top-left
-5. **Window-based, not screen-based** — capture and operate within target window only
-6. **Paste > Type** for CJK text and special chars
-7. **Learn incrementally** — save new components after each interaction
-8. **Integer coordinates only** — pynput uses logical screen coordinates (integers)
-9. **Learn once, match forever** — UI positions are stable unless app updates
+2. **Template match is the ONLY way to get click coordinates** — use `click_component` or `match_on_fullscreen` from `app_memory.py`. These match saved component images on full-screen screenshots and return precise screen coordinates.
+3. **NEVER use `image` tool to estimate coordinates** — the `image` tool (vision model) analyzes screenshots for understanding (what's on screen, what state, what happened). It does NOT provide reliable pixel coordinates. If you need to click something, it MUST have a saved template. If no template exists → learn the app first.
+4. **For dynamic content (search results, lists, popups)**: take screenshot → use `image` tool to UNDERSTAND what's there → crop the relevant region → use `image` tool on crop to identify exact position within crop → calculate screen coordinates from crop bounds. Or better: learn the dynamic state to save templates.
+5. **Paste > Type** for CJK text and special chars
+6. **Learn incrementally** — save new components after each interaction
+7. **Integer coordinates only** — pynput uses logical screen coordinates (integers)
+8. **Learn once, match forever** — UI positions are stable unless app updates
 
 ## Safety Rules
 
 These exist because of real bugs:
 
-1. **Verify before sending** — always OCR the chat header to confirm correct contact
-2. **Stay within window bounds** — get bounds first, filter all OCR/clicks
-3. **No wrong-app learning** — validate window bounds before auto_learn
+1. **Verify before sending** — screenshot chat header, use `image` tool to confirm correct contact name
+2. **Every click gets before/after screenshots** — `click_component` does this automatically; manual clicks must do it explicitly
+3. **No wrong-app learning** — validate frontmost app before learn
 4. **Reject tiny templates** — <30×30 pixels produce false matches
-5. **LLM never provides coordinates** — detection tools provide coordinates, you decide what to click by name
+5. **Vision model never provides click coordinates** — only template matching provides coordinates. Vision model provides understanding.
 6. **Never send screenshots to conversation** — internal detection only
+7. **If click has no effect** — screenshot, analyze what happened, don't repeat blindly. Possible causes: wrong app in front, window moved, click outside window, element not interactive.
 
 ## Memory System
 → Details: `skills/gui-memory/SKILL.md`
