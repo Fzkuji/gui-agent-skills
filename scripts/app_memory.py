@@ -1123,7 +1123,7 @@ def detect_with_memory(app_name, threshold=0.8):
 # Click: find component and click it
 # ═══════════════════════════════════════════
 
-def match_on_fullscreen(app_name, component_name, threshold=0.6, screen_img=None):
+def match_on_fullscreen(app_name, component_name, threshold=0.8, screen_img=None):
     """Match a component template on screen, scoped to the app's window area.
 
     Searches within the app's window bounds (+padding) to avoid false matches
@@ -1302,8 +1302,8 @@ def click_component(app_name, component_name, verify=True):
 
     print(f"  🎯 Found '{component_name}' → screen({screen_x},{screen_y}) conf={conf}")
 
-    # 3. Verify confidence (same threshold as match_on_fullscreen)
-    if verify and conf < 0.6:
+    # 3. Verify confidence
+    if verify and conf < 0.8:
         return False, f"Low confidence ({conf}), not clicking"
 
     # 4. Check if we have an expected state for this click
