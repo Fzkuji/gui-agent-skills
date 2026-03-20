@@ -1548,6 +1548,224 @@ def click_and_record(app_name, label, x, y):
     return True, f"Clicked '{label}' at ({x},{y})", after_visible
 
 
+def drag_and_record(app_name, label, x1, y1, x2, y2, duration=0.5):
+    """Drag from (x1,y1) to (x2,y2) and record state transition.
+    
+    Like click_and_record but for drag operations (area selection, 
+    file drag-drop, slider adjustment, window resize, etc.).
+    
+    Args:
+        app_name: App name
+        label: Description of drag action  
+        x1, y1: Start coordinates (logical)
+        x2, y2: End coordinates (logical)
+        duration: Drag duration in seconds
+    
+    Returns: (success, message, after_visible_components)
+    """
+    from platform_input import mouse_drag, verify_frontmost, activate_app as pi_activate
+    import subprocess as _sp
+    import cv2 as _cv2
+
+    # Pre-drag: template match for state detection
+    _sp.run(["screencapture", "-x", "/tmp/_drag_rec.png"],
+            capture_output=True, timeout=5)
+    _tracker_tick("screenshots")
+    before_screen = _cv2.imread("/tmp/_drag_rec.png")
+    before_visible = _detect_visible_components(app_name, screen_img=before_screen)
+    from_state, _ = identify_state_by_components(app_name, before_visible)
+
+    # Drag
+    mouse_drag(x1, y1, x2, y2, duration=duration)
+    time.sleep(0.5)
+
+    # Verify app
+    is_correct, actual_app = verify_frontmost(app_name)
+    if not is_correct:
+        pi_activate(app_name)
+        time.sleep(0.5)
+        return False, f"App switched to '{actual_app}'", set()
+
+    # Post-drag: full detection
+    time.sleep(0.3)
+    _sp.run(["screencapture", "-x", "/tmp/_drag_rec2.png"],
+            capture_output=True, timeout=5)
+    _tracker_tick("screenshots")
+    after_screen = _cv2.imread("/tmp/_drag_rec2.png")
+    after_visible = _detect_visible_components(app_name, screen_img=after_screen)
+
+    after_texts = set()
+    try:
+        import ui_detector
+        text_elems = ui_detector.detect_text("/tmp/_drag_rec2.png", return_logical=True)
+        after_texts = set(e.get("label", "") for e in text_elems if e.get("label"))
+    except Exception:
+        pass
+
+    after_all = after_visible | after_texts
+    before_all = before_visible
+
+    appeared = after_all - before_all
+    disappeared = before_all - after_all
+
+    if appeared:
+        print(f"  ✅ Appeared: {', '.join(sorted(appeared)[:5])}")
+    if disappeared:
+        print(f"  📤 Disappeared: {', '.join(sorted(disappeared)[:5])}")
+
+    # Record state transition
+    to_state_name = f"drag:{label}"
+    state_data = {
+        "visible": list(after_all),
+        "trigger": label,
+        "trigger_pos": [x1, y1, x2, y2],
+        "type": "drag",
+    }
+    if app_name not in _pending_states:
+        _pending_states[app_name] = {}
+    _pending_states[app_name][to_state_name] = state_data
+
+    if from_state:
+        record_transition(app_name, from_state, label, to_state_name)
+
+    print(f"  📊 Drag ({x1},{y1})→({x2},{y2}) | State: {to_state_name}")
+    _tracker_tick("clicks")
+
+    return True, f"Dragged '{label}' from ({x1},{y1}) to ({x2},{y2})", after_visible
+
+
+def cell_select_by_ocr(app_name, cell_range, hints=None):
+    """Select a cell range in a spreadsheet using OCR-based grid detection.
+    
+    Scans the screen for known data text, uses their positions to build a
+    cell grid, then drags to select the target range.
+    
+    Args:
+        app_name: Spreadsheet app name (e.g. 'Microsoft Excel')
+        cell_range: Range like 'B2:D4' or single cell 'A1'
+        hints: Optional dict of {text: (col, row)} for grid calibration.
+               If None, auto-detects from common spreadsheet data.
+    
+    Returns: (success, message)
+    """
+    import re
+    from platform_input import mouse_click, mouse_drag, activate_app as pi_activate, screenshot
+    from spreadsheet_utils import _parse_cell_ref, _run_vision_ocr
+
+    pi_activate(app_name)
+    time.sleep(0.3)
+
+    # Parse range
+    if ':' in cell_range:
+        start_ref, end_ref = cell_range.split(':')
+    else:
+        start_ref = cell_range
+        end_ref = None
+
+    start_col, start_row = _parse_cell_ref(start_ref)
+    if end_ref:
+        end_col, end_row = _parse_cell_ref(end_ref)
+    else:
+        end_col, end_row = start_col, start_row
+
+    # Screenshot and OCR
+    path = screenshot("/tmp/_cell_select.png")
+    results = _run_vision_ocr(path)
+    _tracker_tick("screenshots")
+
+    # Build grid from OCR results
+    # Use hints if provided, otherwise try to auto-detect
+    col_xs = {}  # col_letter -> [center_x_logical]
+    row_ys = {}  # row_num -> [center_y_logical]
+
+    if hints:
+        for text_pattern, (col, row) in hints.items():
+            for text, x, y, w, h in results:
+                if text.strip() == text_pattern:
+                    cx = (x + w / 2) / 2  # Retina -> logical
+                    cy = (y + h / 2) / 2
+                    col_xs.setdefault(col, []).append(cx)
+                    row_ys.setdefault(row, []).append(cy)
+    
+    # Also scan for row numbers in left margin (x < 80 retina, digits only)
+    for text, x, y, w, h in results:
+        clean = text.strip()
+        if x < 80 and clean.isdigit() and 1 <= int(clean) <= 200:
+            row_num = int(clean)
+            cy = (y + h / 2) / 2
+            row_ys.setdefault(row_num, []).append(cy)
+    
+    # Average positions
+    col_pos = {k: sum(v)/len(v) for k, v in col_xs.items() if v}
+    row_pos = {k: sum(v)/len(v) for k, v in row_ys.items() if v}
+
+    # Extrapolate missing positions from known ones
+    if len(col_pos) >= 2:
+        sorted_cols = sorted(col_pos.items(), key=lambda c: c[1])
+        # Estimate column width
+        col_widths = []
+        for i in range(1, len(sorted_cols)):
+            c1_idx = ord(sorted_cols[i-1][0]) - ord('A')
+            c2_idx = ord(sorted_cols[i][0]) - ord('A')
+            if c2_idx > c1_idx:
+                col_widths.append((sorted_cols[i][1] - sorted_cols[i-1][1]) / (c2_idx - c1_idx))
+        if col_widths:
+            avg_col_width = sum(col_widths) / len(col_widths)
+            # Fill in missing columns
+            ref_col, ref_x = sorted_cols[0]
+            ref_idx = ord(ref_col) - ord('A')
+            for col_letter in [start_col, end_col]:
+                if col_letter not in col_pos:
+                    target_idx = ord(col_letter) - ord('A')
+                    col_pos[col_letter] = ref_x + (target_idx - ref_idx) * avg_col_width
+
+    if len(row_pos) >= 2:
+        sorted_rows = sorted(row_pos.items())
+        row_heights = []
+        for i in range(1, len(sorted_rows)):
+            r1, y1 = sorted_rows[i-1]
+            r2, y2 = sorted_rows[i]
+            if r2 > r1:
+                row_heights.append((y2 - y1) / (r2 - r1))
+        if row_heights:
+            avg_row_height = sum(row_heights) / len(row_heights)
+            ref_row, ref_y = sorted_rows[0]
+            for row_num in [start_row, end_row]:
+                if row_num not in row_pos:
+                    row_pos[row_num] = ref_y + (row_num - ref_row) * avg_row_height
+
+    # Check we have all needed positions
+    needed_cols = [start_col, end_col] if end_ref else [start_col]
+    needed_rows = [start_row, end_row] if end_ref else [start_row]
+    
+    missing = []
+    for c in needed_cols:
+        if c not in col_pos:
+            missing.append(f"column {c}")
+    for r in needed_rows:
+        if r not in row_pos:
+            missing.append(f"row {r}")
+    
+    if missing:
+        return False, f"Could not locate: {', '.join(missing)}. Provide --hints for calibration."
+
+    if end_ref:
+        # Drag select
+        sx, sy = col_pos[start_col], row_pos[start_row]
+        ex, ey = col_pos[end_col], row_pos[end_row]
+        print(f"  📍 {start_ref} at ({sx:.0f}, {sy:.0f})")
+        print(f"  📍 {end_ref} at ({ex:.0f}, {ey:.0f})")
+        mouse_drag(sx, sy, ex, ey, duration=0.5)
+        _tracker_tick("clicks")
+        return True, f"Selected {cell_range} via drag ({sx:.0f},{sy:.0f})→({ex:.0f},{ey:.0f})"
+    else:
+        # Single cell click
+        cx, cy = col_pos[start_col], row_pos[start_row]
+        mouse_click(cx, cy)
+        _tracker_tick("clicks")
+        return True, f"Clicked cell {start_ref} at ({cx:.0f}, {cy:.0f})"
+
+
 def click_component(app_name, component_name, verify=True):
     """Find a component by template match on FULL SCREEN and click it.
 
@@ -1813,6 +2031,20 @@ def main():
     p_pending = sub.add_parser("pending", help="Show pending (uncommitted) transitions")
     p_pending.add_argument("--app", required=True)
 
+    p_drag = sub.add_parser("drag", help="Drag from (x1,y1) to (x2,y2) and record state")
+    p_drag.add_argument("--app", required=True)
+    p_drag.add_argument("--label", required=True, help="Description of drag action")
+    p_drag.add_argument("--x1", type=int, required=True)
+    p_drag.add_argument("--y1", type=int, required=True)
+    p_drag.add_argument("--x2", type=int, required=True)
+    p_drag.add_argument("--y2", type=int, required=True)
+    p_drag.add_argument("--duration", type=float, default=0.5)
+
+    p_cell = sub.add_parser("cell_select", help="Select spreadsheet cell range via OCR-based grid detection")
+    p_cell.add_argument("--app", required=True, help="Spreadsheet app name (e.g. 'Microsoft Excel')")
+    p_cell.add_argument("--range", required=True, dest="cell_range", help="Cell range like 'B2:D4' or single cell 'A1'")
+    p_cell.add_argument("--hints", nargs="*", default=[], help="Known text=col:row hints, e.g. 'Alice=A:2 Age=B:1'")
+
     args = parser.parse_args()
 
     if args.command == "learn":
@@ -1984,6 +2216,22 @@ def main():
 
     elif args.command == "click_at":
         ok, msg, _ = click_and_record(args.app, args.label, args.x, args.y)
+        print(f"{'✅' if ok else '❌'} {msg}")
+
+    elif args.command == "drag":
+        ok, msg, _ = drag_and_record(args.app, args.label,
+                                      args.x1, args.y1, args.x2, args.y2,
+                                      duration=args.duration)
+        print(f"{'✅' if ok else '❌'} {msg}")
+
+    elif args.command == "cell_select":
+        # Parse hints: "Alice=A:2 Age=B:1" -> {"Alice": ("A", 2), "Age": ("B", 1)}
+        hints = {}
+        for h in args.hints:
+            text, ref = h.split("=")
+            col, row = ref.split(":")
+            hints[text] = (col, int(row))
+        ok, msg = cell_select_by_ocr(args.app, args.cell_range, hints=hints if hints else None)
         print(f"{'✅' if ok else '❌'} {msg}")
 
     elif args.command == "commit":
