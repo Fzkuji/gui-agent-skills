@@ -434,13 +434,16 @@ If you find GUIClaw useful in your research, please cite:
 
 ---
 
+## ⭐ Star History
+
 <p align="center">
-  <a href="https://github.com/Fzkuji/GUIClaw/stargazers"><img src="https://img.shields.io/github/stars/Fzkuji/GUIClaw?style=social" alt="Stars" /></a>
-  <a href="https://github.com/Fzkuji/GUIClaw/network/members"><img src="https://img.shields.io/github/forks/Fzkuji/GUIClaw?style=social" alt="Forks" /></a>
-  <a href="https://github.com/Fzkuji/GUIClaw/issues"><img src="https://img.shields.io/github/issues/Fzkuji/GUIClaw" alt="Issues" /></a>
-  <a href="https://github.com/Fzkuji/GUIClaw/pulls"><img src="https://img.shields.io/github/issues-pr/Fzkuji/GUIClaw" alt="PRs" /></a>
-  <a href="https://github.com/Fzkuji/GUIClaw/graphs/contributors"><img src="https://img.shields.io/github/contributors/Fzkuji/GUIClaw" alt="Contributors" /></a>
-  <a href="https://github.com/Fzkuji/GUIClaw/commits/main"><img src="https://img.shields.io/github/last-commit/Fzkuji/GUIClaw" alt="Last Commit" /></a>
+  <a href="https://star-history.com/#Fzkuji/GUIClaw&Date">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Fzkuji/GUIClaw&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Fzkuji/GUIClaw&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Fzkuji/GUIClaw&type=Date" width="600" />
+    </picture>
+  </a>
 </p>
 
 <p align="center">
