@@ -143,7 +143,7 @@ Step 3: LLM reads the text output directly (no visual analysis needed)
 You ARE the agent loop. Every GUI task follows this flow:
 
 ```
-OBSERVE → ENSURE APP READY → ACT+SAVE (detect→match→execute→diff→save) → STATE TRANSITION → REPORT
+OBSERVE → ENSURE APP READY → ACT+SAVE (detect→match→save components→execute→diff→save transition) → REPORT
 ```
 
 ## Sub-Skills
@@ -198,26 +198,31 @@ Take screenshot. Run GPA-GUI-Detector + OCR to detect all UI elements. Use `imag
 
 If app not in memory → learn. If component not found → re-learn current state.
 
-### STEP 2: ACT + SAVE MEMORY (one unified step)
+### STEP 2: ACT + SAVE (one unified step, per-click)
 → **MUST `read {baseDir}/skills/gui-act/SKILL.md` first**
 
-gui-act defines the COMPLETE flow: detect → match memory → decide → execute → detect again → diff → save.
-Detection, execution, and memory saving are ONE atomic operation. Not separate steps.
+gui-act defines the 7-sub-step flow for EACH click:
 
-**Memory saving is built into every action — not a separate step you do "after".**
-Read gui-act SKILL.md for the full 7-sub-step flow. If you skip the save sub-steps (5-7), the memory system is useless and every future visit starts from scratch.
+1. **DETECT** — screenshot → OCR + GPA-GUI-Detector
+2. **MATCH** — compare against saved memory
+3. **SAVE COMPONENTS** — new elements → `learn_from_screenshot()` (BEFORE clicking!)
+4. **DECIDE & EXECUTE** — pick target → click at detected coordinates
+5. **DETECT AGAIN** — screenshot after click (if needed to verify)
+6. **DIFF** — compare before vs after
+7. **SAVE TRANSITION** — `record_page_transition()` records state change
+
+**Component saving happens BEFORE the click (step 3), not after.** This ensures memory is always populated even if the click fails.
+
+Both save functions are automated — no manual cropping or JSON editing:
+- `learn_from_screenshot(img_path, domain, app_name, page_name)` — auto-detects, crops, deduplicates, saves all components
+- `record_page_transition(before_img, after_img, click_label, click_pos, domain)` — auto-diffs OCR, saves states + transition
 
 For memory structure details (profile.json format, directory layout, browser sites/): `read {baseDir}/skills/gui-memory/SKILL.md`
 
-### STEP 3: STATE TRANSITION
-→ **MUST `read {baseDir}/skills/gui-workflow/SKILL.md` first** (for multi-step tasks)
-
-Every click records a pending transition. Workflow succeeds → confirm. Fails → discard.
-
-### STEP 4: REPORT
+### STEP 3: REPORT
 → **MUST `read {baseDir}/skills/gui-report/SKILL.md` first**
 
-Track task performance: duration, token usage, operation counts.
+Track task performance: duration, token usage, operation counts. Call at START and END of each task (not per-click).
 
 ---
 

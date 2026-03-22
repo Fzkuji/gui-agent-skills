@@ -1132,6 +1132,275 @@ def learn_site(app_name="Google Chrome", page_name="main"):
     return True
 
 
+def learn_from_screenshot(img_path, domain=None, app_name="chromium", page_name=None, retina=False):
+    """Learn UI components from any screenshot (local or remote VM).
+
+    This is the platform-independent version of learn_site(). It takes a
+    screenshot path as input and does NOT call any Mac-specific APIs
+    (no screencapture, no osascript, no get_window_bounds).
+
+    Args:
+        img_path: Path to screenshot PNG (any source — local, VM, etc.)
+        domain: Website domain (e.g. "united.com"). If None, saves to app-level memory.
+        app_name: Browser/app name for memory directory (default "chromium")
+        page_name: Page label (e.g. "homepage", "bags_overview"). Auto-generated if None.
+        retina: If True, coordinates are halved for logical pixels (Mac Retina).
+                If False (default), coordinates are used as-is (VMs, non-Retina).
+
+    Returns: dict with saved component names and count
+    """
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import ui_detector
+
+    img = cv2.imread(img_path)
+    if img is None:
+        print(f"  ❌ Could not read image: {img_path}")
+        return {"saved": 0, "components": []}
+
+    img_h, img_w = img.shape[:2]
+    scale = 2 if retina else 1
+
+    # Auto-generate page_name from domain + timestamp if not provided
+    if not page_name:
+        page_name = f"page_{time.strftime('%H%M%S')}"
+
+    print(f"🧠 Learning from screenshot: {img_path}")
+    print(f"  Size: {img_w}x{img_h}, domain: {domain}, page: {page_name}")
+
+    # Detect
+    icon_elements, det_w, det_h = ui_detector.detect_icons(img_path, conf=0.1, iou=0.3)
+    text_elements = ui_detector.detect_text(img_path)
+    all_elements = ui_detector.merge_elements(icon_elements, text_elements, iou_threshold=0.3)
+    print(f"  🔍 Detected {len(all_elements)} elements ({len(icon_elements)} icons, {len(text_elements)} text)")
+
+    # Get save directory
+    if domain:
+        save_dir = get_site_dir(app_name, domain)
+    else:
+        save_dir = get_app_dir(app_name)
+
+    # Load or init profile
+    profile_path = save_dir / "profile.json"
+    if profile_path.exists():
+        with open(profile_path) as f:
+            profile = json.load(f)
+    else:
+        profile = {"app": app_name, "domain": domain, "components": {},
+                   "states": {}, "transitions": [], "last_updated": None}
+
+    profile["img_size"] = [img_w, img_h]
+
+    icons_dir = save_dir / "components"
+    page_components = []
+    new_count = 0
+    dup_count = 0
+    skip_count = 0
+
+    for el in all_elements:
+        # Filter: skip tiny elements
+        w, h = el.get("w", 0), el.get("h", 0)
+        if w < 25 or h < 25:
+            skip_count += 1
+            continue
+
+        # Smart naming: OCR text > nearest text > positional
+        if el.get("label"):
+            comp_name = el["label"].replace(" ", "_").replace("/", "-")[:30]
+        else:
+            nearest_label = _find_nearest_text(el, text_elements)
+            if nearest_label:
+                comp_name = nearest_label.replace(" ", "_").replace("/", "-")[:30]
+            else:
+                rx = el["cx"] // scale
+                ry = el["cy"] // scale
+                comp_name = f"unlabeled_{rx}_{ry}"
+
+        # Dedup by position against existing profile
+        is_new = True
+        for existing_name, existing in profile["components"].items():
+            if (abs(existing.get("rel_x", 0) - el["cx"] // scale) < 15 and
+                abs(existing.get("rel_y", 0) - el["cy"] // scale) < 15):
+                is_new = False
+                comp_name = existing_name
+                break
+
+        # Crop
+        x, y = el["x"], el["y"]
+        pad = 4
+        y1, x1 = max(0, y - pad), max(0, x - pad)
+        y2 = min(img.shape[0], y + h + pad)
+        x2 = min(img.shape[1], x + w + pad)
+        crop = img[y1:y2, x1:x2]
+        if crop.size == 0:
+            continue
+
+        # Visual dedup
+        is_dup, dup_name = is_duplicate_icon(crop, icons_dir, threshold=0.92)
+        if is_dup and is_new:
+            dup_count += 1
+            continue
+
+        # Save icon
+        safe_name = comp_name.replace("/", "-").replace(" ", "_").replace(":", "")
+        safe_name = safe_name.replace("\\", "-").replace("?", "").replace("*", "")[:50]
+        icon_path = icons_dir / f"{safe_name}.png"
+        cv2.imwrite(str(icon_path), crop)
+
+        rel_x = el["cx"] // scale
+        rel_y = el["cy"] // scale
+
+        profile["components"][comp_name] = {
+            "type": el["type"],
+            "source": el.get("source", "detection"),
+            "rel_x": rel_x, "rel_y": rel_y,
+            "w": w // scale, "h": h // scale,
+            "icon_file": f"components/{safe_name}.png",
+            "label": el.get("label"),
+            "confidence": el.get("confidence", 0),
+            "page": page_name,
+            "learned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        page_components.append(comp_name)
+        if is_new:
+            new_count += 1
+
+    # Save page screenshot
+    pages_dir = save_dir / "pages"
+    import shutil
+    shutil.copy2(img_path, str(pages_dir / f"{page_name}.png"))
+
+    # Save annotated image
+    try:
+        ui_detector.annotate_image(img_path, all_elements,
+                                   str(pages_dir / f"{page_name}_annotated.jpg"))
+    except Exception:
+        pass
+
+    # Update profile
+    if "pages" not in profile:
+        profile["pages"] = {}
+    profile["pages"][page_name] = {
+        "components": page_components,
+        "learned_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    profile["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(profile_path, "w") as f:
+        json.dump(profile, f, indent=2, ensure_ascii=False)
+
+    print(f"  💾 Saved {len(page_components)} components ({new_count} new, {dup_count} dups, {skip_count} skipped)")
+    print(f"  📁 {save_dir}")
+    return {"saved": len(page_components), "new": new_count, "components": page_components}
+
+
+def record_page_transition(before_img_path, after_img_path, click_label, click_pos,
+                           domain=None, app_name="chromium", retina=False):
+    """Record a state transition from before/after screenshots.
+
+    Platform-independent: no Mac APIs. Takes two screenshot paths,
+    runs OCR on both, computes diff, saves to profile.
+
+    Args:
+        before_img_path: Screenshot before click
+        after_img_path: Screenshot after click
+        click_label: What was clicked (text label or component name)
+        click_pos: (x, y) coordinates of the click
+        domain: Website domain (for browser sites)
+        app_name: App/browser name
+        retina: Whether to halve coordinates
+
+    Returns: dict with appeared/disappeared/transition info
+    """
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import ui_detector
+
+    # OCR both screenshots
+    before_texts = set()
+    after_texts = set()
+
+    try:
+        before_elems = ui_detector.detect_text(before_img_path)
+        before_texts = set(e.get("label", "").strip() for e in before_elems if e.get("label", "").strip())
+    except Exception as ex:
+        print(f"  ⚠️ OCR failed on before image: {ex}")
+
+    try:
+        after_elems = ui_detector.detect_text(after_img_path)
+        after_texts = set(e.get("label", "").strip() for e in after_elems if e.get("label", "").strip())
+    except Exception as ex:
+        print(f"  ⚠️ OCR failed on after image: {ex}")
+
+    # Diff
+    appeared = after_texts - before_texts
+    disappeared = before_texts - after_texts
+    persisted = before_texts & after_texts
+
+    if appeared:
+        top = sorted(appeared)[:8]
+        print(f"  ✅ Appeared: {', '.join(top)}")
+    if disappeared:
+        top = sorted(disappeared)[:8]
+        print(f"  📤 Disappeared: {', '.join(top)}")
+    print(f"  📊 {len(persisted)} persisted, {len(appeared)} appeared, {len(disappeared)} disappeared")
+
+    # Load profile and save transition
+    if domain:
+        save_dir = get_site_dir(app_name, domain)
+    else:
+        save_dir = get_app_dir(app_name)
+
+    profile_path = save_dir / "profile.json"
+    if profile_path.exists():
+        with open(profile_path) as f:
+            profile = json.load(f)
+    else:
+        profile = {"app": app_name, "domain": domain, "components": {},
+                   "states": {}, "transitions": [], "last_updated": None}
+
+    # State names
+    from_state = f"before_{click_label}"
+    to_state = f"after_{click_label}"
+
+    # Save states
+    if "states" not in profile:
+        profile["states"] = {}
+    profile["states"][from_state] = {
+        "visible_texts": sorted(list(before_texts))[:50],  # Cap to prevent bloat
+    }
+    profile["states"][to_state] = {
+        "visible_texts": sorted(list(after_texts))[:50],
+        "appeared": sorted(list(appeared))[:20],
+        "disappeared": sorted(list(disappeared))[:20],
+    }
+
+    # Save transition
+    if "transitions" not in profile:
+        profile["transitions"] = []
+
+    transition = {
+        "from": from_state,
+        "click": click_label,
+        "click_pos": list(click_pos),
+        "to": to_state,
+        "appeared_count": len(appeared),
+        "disappeared_count": len(disappeared),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    profile["transitions"].append(transition)
+    profile["last_updated"] = time.strftime("%Y-%m-%d %H:%M:%S")
+
+    with open(profile_path, "w") as f:
+        json.dump(profile, f, indent=2, ensure_ascii=False)
+
+    print(f"  🔄 Transition: {from_state} → [{click_label}] → {to_state}")
+    return {
+        "appeared": sorted(list(appeared)),
+        "disappeared": sorted(list(disappeared)),
+        "from": from_state,
+        "to": to_state,
+    }
+
+
 def navigate_browser(app_name, url):
     """Navigate browser to a URL."""
     # Method 1: open command (works for any browser, most reliable)
