@@ -36,7 +36,7 @@
 
 ## 🔥 News
 
-- **[03/22/2026]** 🏆 **OSWorld benchmark**: 19/22 Chrome tasks passed (86.4%), including external website tasks. [See results →](benchmarks/osworld/)
+- **[03/22/2026]** 🏆 **OSWorld benchmark**: 21/22 Chrome tasks passed (95.5%), including external website tasks. [See results →](benchmarks/osworld/)
 - **[03/21/2026]** v0.5.0 — **Cross-platform detection**: GPA-GUI-Detector works on any OS screenshot (Linux, Windows, mobile). First OSWorld evaluation on Ubuntu VM.
 - **[03/19/2026]** v0.4.0 — **Workflow memory + async polling**: Saved workflows auto-matched by LLM intent; `wait_for` command (template-match polling, no blind clicks); mandatory timing & token delta reporting; multi-window fix (selects largest window).
 - **[03/19/2026]** v0.3.0 — **Click-graph state architecture**: UI modeled as a graph of states; each click creates a new state entry; state identification via OCR text matching. Removed pages/regions/overlays complexity.
