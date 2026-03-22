@@ -1,7 +1,12 @@
 # Template images (contain personal UI screenshots)
 templates/
 
-# App visual memory (machine-specific, contains personal screenshots)
+# App visual memory — core part of the system, generated at runtime.
+# Stores learned UI components, state graphs, and page screenshots per app.
+# Each user's GUIClaw instance builds its own memory during operations.
+# Not tracked in git: each machine has different resolution, OS, app versions.
+# The agent MUST actively save detection results here during all GUI operations.
+# Structure: memory/apps/<appname>/profile.json, components/, pages/
 memory/
 
 # Detection output
