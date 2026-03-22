@@ -49,14 +49,62 @@ Each app has one profile containing:
 
 ## Directory Structure
 
+### Standard apps (single UI)
 ```
 memory/apps/<appname>/
 ├── profile.json              # Components + states + transitions
-└── components/               # Template images
-    ├── chat_tab.png
-    ├── search_bar.png
+├── components/               # Template images (cropped UI elements)
+│   ├── chat_tab.png
+│   ├── search_bar.png
+│   └── ...
+└── pages/                    # Full page screenshots for reference
+    └── main_view.png
+```
+
+### Browser apps (multiple websites)
+
+Browsers are special: they host many different websites, each with its own UI.
+The browser itself (Chromium, Chrome, Safari) has one profile for browser-level UI (toolbar, settings, tabs).
+**Each website visited gets its own nested profile with the SAME structure as any app.**
+
+```
+memory/apps/chromium/
+├── profile.json              # Browser-level UI: toolbar, settings pages, extensions
+├── components/               # Browser UI element templates
+│   ├── three_dot_menu.png
+│   ├── address_bar.png
+│   └── ...
+├── pages/                    # Browser UI screenshots
+│   └── settings_appearance.png
+└── sites/                    # ⭐ Each website = its own "app" with identical structure
+    ├── united.com/
+    │   ├── profile.json      # United Airlines UI: nav bar, booking form, links
+    │   ├── components/       # Cropped UI elements from United's pages
+    │   │   ├── travel_info_menu.png
+    │   │   ├── book_button.png
+    │   │   └── ...
+    │   └── pages/            # Page screenshots
+    │       ├── homepage.png
+    │       └── baggage_calculator.png
+    ├── delta.com/
+    │   ├── profile.json
+    │   ├── components/
+    │   └── pages/
+    ├── amazon.com/
+    │   ├── profile.json
+    │   ├── components/
+    │   └── pages/
     └── ...
 ```
+
+**Rules for website memory:**
+- **Every new website = create `sites/<domain>/`** with profile.json + components/ + pages/
+- **Same structure as any app** — profile.json has the same format (components, states, transitions)
+- **Domain as folder name** — use the domain only (e.g. `united.com`, not `www.united.com/en/us`)
+- **Save after every task** — even if the task failed, save what you learned about the site's UI
+- **Components are site-specific** — a "Book" button on united.com is different from "Book" on delta.com
+- **States track pages within the site** — homepage, search results, checkout, etc.
+- **Transitions track navigation** — "clicked Travel info → dropdown appeared", "clicked Baggage → went to fee calculator page"
 
 ## CRUD Operations
 

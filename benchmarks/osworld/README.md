@@ -47,11 +47,15 @@ GUIClaw runs on the following stack:
 1. **Snapshot restore** → Clean VM state
 2. **Config setup** → Launch Chrome, run task-specific setup
 3. **Screenshot** → Download VM screen as PNG to Mac
-4. **GPA-GUI-Detector + OCR** → Detect UI components and text locally on Mac
-5. **Claude Opus 4.6** (via OpenClaw) → Analyze detections, decide action
-6. **Action execution** → Send pyautogui click/type/hotkey to VM via HTTP API
-7. **Repeat 3–6** until task complete
-8. **Evaluation** → Run official OSWorld evaluator
+4. **OCR** (`detect_text`) → Read all text with coordinates (runs locally on Mac)
+5. **GPA-GUI-Detector** (`detect_icons`) → Detect UI components with coordinates (runs locally on Mac)
+6. **image tool** (if needed) → Claude sees screenshot for semantic understanding (⛔ no coordinates)
+7. **Claude Opus 4.6** (via OpenClaw) → Combine OCR text + detector positions + visual understanding → decide action
+8. **Action execution** → Send pyautogui click/type/hotkey to VM via HTTP API
+9. **Repeat 3–8** until task complete (with memory saving after each action)
+10. **Evaluation** → Run official OSWorld evaluator
+
+> **Note**: Steps 4–6 follow the "Three Visual Methods" defined in SKILL.md. On familiar pages, step 6 (image tool) is skipped to save tokens.
 
 ## Chrome Domain Results
 

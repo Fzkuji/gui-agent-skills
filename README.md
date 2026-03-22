@@ -37,6 +37,7 @@
 ## 🔥 News
 
 - **[03/22/2026]** 🏆 **OSWorld benchmark**: **24/24 Chrome tasks passed (100%)**, including external website tasks. [See results →](benchmarks/osworld/)
+- **[03/22/2026]** v0.6.0 — **Vision vs Command boundary + unified action flow**: Clear definition of three visual methods (OCR/GPA-GUI-Detector/image tool) and when to use each; action and memory saving merged into one atomic operation (detect→match→execute→diff→save); browser per-website nested memory structure.
 - **[03/21/2026]** v0.5.0 — **Cross-platform detection**: GPA-GUI-Detector works on any OS screenshot (Linux, Windows, mobile). First OSWorld evaluation on Ubuntu VM.
 - **[03/19/2026]** v0.4.0 — **Workflow memory + async polling**: Saved workflows auto-matched by LLM intent; `wait_for` command (template-match polling, no blind clicks); mandatory timing & token delta reporting; multi-window fix (selects largest window).
 - **[03/19/2026]** v0.3.0 — **Click-graph state architecture**: UI modeled as a graph of states; each click creates a new state entry; state identification via OCR text matching. Removed pages/regions/overlays complexity.
@@ -230,6 +231,7 @@ Then just chat with your OpenClaw agent — it reads `SKILL.md` and handles ever
 ## 📁 App Visual Memory
 
 Each app gets its own visual memory with a **click-graph state model**.
+Browsers are special — they host many websites, so each site gets its own **nested memory** with the same structure as any app.
 
 ```
 memory/apps/
@@ -255,12 +257,23 @@ memory/apps/
 │   ├── workflows/
 │   │   └── check_usage.json
 │   └── pages/
-└── google_chrome/
-    ├── profile.json
-    ├── components/
-    └── sites/                    # Per-website memory
-        ├── 12306_cn/
-        └── github_com/
+└── chromium/
+    ├── profile.json              # Browser-level UI (toolbar, settings)
+    ├── components/               # Browser UI element templates
+    ├── pages/
+    └── sites/                    # ⭐ Per-website memory (same structure as any app)
+        ├── united.com/
+        │   ├── profile.json      # Site UI: nav bar, forms, links
+        │   ├── components/       # Cropped site-specific UI elements
+        │   └── pages/            # Page screenshots
+        ├── delta.com/
+        │   ├── profile.json
+        │   ├── components/
+        │   └── pages/
+        └── amazon.com/
+            ├── profile.json
+            ├── components/
+            └── pages/
 ```
 
 ### Click Graph
@@ -350,18 +363,39 @@ python3 agent.py wait_for --app "CleanMyMac X" --component Run
 - Template match every 10s (~0.3s per check)
 - On timeout → saves screenshot for inspection, **never blind-clicks**
 
+## 🔴 Vision vs Command
+
+GUIClaw uses visual detection for **decisions** and the most efficient method for **execution**:
+
+| | Must be vision-based | May use keyboard/CLI |
+|---|---|---|
+| **What** | Determining state, locating elements, verifying results | Shortcuts (Ctrl+L), text input, system commands |
+| **Why** | The agent must SEE what's on screen before acting | Execution can use the fastest available method |
+| **Rule** | **Decision = Visual, Execution = Best Tool** | |
+
+### Three Visual Methods
+
+| Method | Returns | Use for |
+|--------|---------|---------|
+| **OCR** (`detect_text`) | Text + coordinates ✅ | Finding text labels, links, menu items |
+| **GPA-GUI-Detector** (`detect_icons`) | Bounding boxes + coordinates ✅ (no labels) | Finding icons, buttons, non-text elements |
+| **image tool** (LLM vision) | Semantic understanding ⛔ NO coordinates | Understanding the scene, deciding WHAT to click |
+
+**Progressive workflow**: First visit → all three methods. Familiar pages → OCR + detector only (skip image tool, save tokens).
+
 ## ⚠️ Safety & Protocol
 
-Every action follows a mandatory protocol — **written into the code, not just documentation**:
+Every action follows a unified detect-match-execute-save protocol:
 
 | Step | What | Why |
 |------|------|-----|
-| **INTENT** | Match request to saved workflows | Reuse proven paths |
-| **OBSERVE** | Screenshot + GPA-GUI-Detector + OCR + record token count | Know state, track cost |
-| **VERIFY** | Element exists? Correct window? Exact text match? | Prevent clicking wrong thing |
-| **ACT** | Click / type / send | Execute |
-| **CONFIRM** | Screenshot again, check state changed | Verify it worked |
-| **REPORT** | `⏱ 45s \| 📊 +10k tokens \| 🔧 3 clicks` | Mandatory cost tracking |
+| **DETECT** | Screenshot + OCR + GPA-GUI-Detector | Know what's on screen with coordinates |
+| **MATCH** | Compare against saved memory components | Reuse learned elements (skip re-detection) |
+| **DECIDE** | LLM picks target element | Visual understanding drives decisions |
+| **EXECUTE** | Click detected coordinates / keyboard shortcut | Act using best tool |
+| **DETECT AGAIN** | Screenshot + OCR + GPA-GUI-Detector after action | See what changed |
+| **DIFF** | Compare before vs after (appeared/disappeared/persisted) | Understand state transition |
+| **SAVE** | Update memory: components, labels, transitions, pages | Learn for future reuse |
 
 **Safety rules enforced in code:**
 - ✅ Verify chat recipient before sending messages (OCR header)
@@ -376,12 +410,15 @@ Every action follows a mandatory protocol — **written into the code, not just 
 ```
 GUIClaw/
 ├── SKILL.md                   # 🧠 Main skill — agent reads this first
-├── skills/                    # 📖 Sub-skills (read on demand)
+│                              #    Defines: Vision vs Command boundary,
+│                              #    three visual methods, execution flow
+├── skills/                    # 📖 Sub-skills
 │   ├── gui-observe/SKILL.md   #   👁️ Screenshot, OCR, identify state
 │   ├── gui-learn/SKILL.md     #   🎓 Detect components, label, filter, save
-│   ├── gui-act/SKILL.md       #   🖱️ Click, type, send, wait for UI
-│   ├── gui-memory/SKILL.md    #   💾 Memory CRUD, profiles, cleanup rules
-│   ├── gui-workflow/SKILL.md  #   🔄 Intent match, save/replay workflows
+│   ├── gui-act/SKILL.md       #   🖱️ Unified: detect→match→execute→diff→save
+│   ├── gui-memory/SKILL.md    #   💾 Memory structure, browser sites/, cleanup
+│   ├── gui-workflow/SKILL.md  #   🔄 State graph navigation, workflow replay
+│   ├── gui-report/SKILL.md    #   📊 Task performance tracking
 │   └── gui-setup/SKILL.md     #   ⚙️ First-time setup on a new machine
 ├── scripts/
 │   ├── setup.sh               # 🔧 One-command setup
@@ -390,14 +427,15 @@ GUIClaw/
 │   ├── app_memory.py          # 🧠 Visual memory (learn/detect/click/verify/learn_site)
 │   ├── gui_agent.py           # 🖱️ Legacy task executor
 │   └── template_match.py      # 🎯 Template matching utilities
-├── memory/                    # 🔒 Visual memory (gitignored)
-│   ├── apps/<appname>/        #   Per-app: profile.json, components/, pages/, workflows/
-│   │   └── sites/<domain>/    #   Per-website memory (browsers only)
+├── memory/                    # 🔒 Visual memory (gitignored but ESSENTIAL)
+│   ├── apps/<appname>/        #   Per-app: profile.json, components/, pages/
+│   │   └── sites/<domain>/    #   Per-website memory (browsers only, same structure)
 │   └── meta_workflows/        #   Cross-app orchestration
+├── benchmarks/osworld/        # 📈 OSWorld benchmark results
 ├── assets/                    # 🎨 Architecture diagrams, banners
 ├── actions/_actions.yaml      # 📋 Atomic operation definitions
 ├── docs/
-│   ├── core.md                # 📚 Lessons learned
+│   ├── core.md                # 📚 Lessons learned & hard-won rules
 │   └── README_CN.md           # 🇨🇳 中文文档
 ├── LICENSE                    # 📄 MIT
 └── requirements.txt

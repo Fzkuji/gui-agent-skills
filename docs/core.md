@@ -1,16 +1,33 @@
 # Core Principles & Lessons Learned
 
+## 🔴 Vision vs Command — The #1 Rule
+
+**Decision = Visual, Execution = Best Tool.**
+
+Every action must be justified by what you observed on screen. Keyboard shortcuts are fine for execution, but the DECISION to act must come from visual observation (OCR, GPA-GUI-Detector, or image tool).
+
+### Three Visual Methods
+
+| Method | Returns | Coordinates? | Use for |
+|--------|---------|-------------|---------|
+| **OCR** (`detect_text`) | Text + bounding box | ✅ YES | Text elements (labels, links, menu items) |
+| **GPA-GUI-Detector** (`detect_icons`) | Bounding box (no labels) | ✅ YES | Non-text elements (icons, buttons) |
+| **image tool** (LLM vision) | Semantic understanding | ⛔ NEVER | Understanding the scene, deciding WHAT to click |
+
+**Phase 1** (unfamiliar page): OCR + image tool + GPA-GUI-Detector → all three together
+**Phase 2** (familiar page): OCR + GPA-GUI-Detector only → skip image tool, save tokens
+
 ## Tool Priority (fastest → slowest)
 
 | Tool | Speed | Use for |
 |------|-------|---------|
 | **Template match** | ~0.3s | Known UI elements from memory (conf=1.0) |
-| **cliclick** | instant | Mouse clicks (`c:x,y`), keys (`kp:return`) |
+| **pynput** | instant | Mouse clicks, keys, keyboard shortcuts |
 | **Apple Vision OCR** | ~1.6s | Find text on screen (Chinese + English) |
 | **GPA-GUI-Detector** | ~0.3s | General-purpose UI element detection (40MB) |
 | **Screenshot + Vision** | ~5-10s | Last resort, send to LLM for analysis |
 
-**Rule**: Always try cheaper methods first. Don't run GPA-GUI-Detector+OCR if template match works.
+**Rule**: Always try cheaper methods first. Template match > OCR > GPA-GUI-Detector > image tool.
 
 ## Coordinate System
 
@@ -45,7 +62,7 @@ Screen (0,0) ──────────────────────�
 - **Known bug**: searching for a contact name may match text in OTHER apps' windows if they're visible behind the target app. FIX: capture ONLY the target window screenshot (screencapture -l), not fullscreen
 
 ### Input
-- **NEVER use cliclick t: for ANY text input** — always use pbcopy + Cmd+V. cliclick type goes through system IME and produces garbled text (e.g., "G'lo'ba'l'P'ro'te'c't" instead of "GlobalProtect") when Chinese input method is active. Paste bypasses IME completely.
+- **NEVER type directly through IME** — always use clipboard paste (pbcopy + Cmd+V or paste_text()). Direct typing through system IME produces garbled text when Chinese input method is active. Paste bypasses IME completely.
 - **Set LANG=en_US.UTF-8** before paste — CJK garbles without it
 - **Click input field before typing** — never assume cursor is in the right place
 - **Enter sends in WeChat** — NOT Cmd+Enter
@@ -142,3 +159,18 @@ Screen (0,0) ──────────────────────�
   - Example: (855,801) ✅
 - **Both methods give same result** (±1px)
 - The previous "coordinate bug" was actually an **OCR text matching bug** (matched "Deep Scan" instead of "Scan" button)
+
+### Memory Saving (CRITICAL — most commonly skipped step)
+- **Save after EVERY action** — not as a separate step, but as part of the action itself
+- **ACT = detect → match → execute → detect again → diff → save** — all 7 sub-steps, every time
+- **Browser websites need per-site memory**: `memory/apps/chromium/sites/united.com/` with the same structure as any app (profile.json + components/ + pages/)
+- **Label components when saving** — OCR text → use as label; unlabeled → use image tool to identify
+- **The payoff**: first visit needs GPA + image tool (slow, expensive). Second visit uses template match only (fast, free)
+- **If you skip saving, every visit starts from scratch** — this defeats the entire purpose of the memory system
+- **"I'll save it later" = never** — memory saving was a separate STEP 3 and it was ALWAYS skipped. Now it's built into ACT.
+
+### Skill Reading vs Skill Following
+- **Reading SKILL.md ≠ following SKILL.md** — LLM reads rules then ignores them during execution
+- **Writing ABSOLUTE RULES doesn't help** — the same mistakes recur across sessions
+- **Merging steps helps** — separate "save memory" step was always skipped; merging it into "act" makes it harder to skip
+- **Specific > vague** — "save to memory" is vague; "crop component, save template, update profile.json, record transition" is actionable
