@@ -65,13 +65,13 @@ GUIClaw runs on the following stack:
 
 | Metric | Value |
 |--------|-------|
-| Total tasks | 46 |
-| ✅ First-try pass | 40 |
+| Total tasks | 46 (all tested) |
+| ✅ First-try pass | 41 |
 | ⚠️ Retry pass (×0.5) | 2 |
 | ⚠️ Env change (×1.0) | 2 |
 | ❌ Failed | 1 |
-| ⏭️ Skipped | 1 |
-| **Score** | **43.0 / 45** (95.6%) |
+| ⏭️ Skipped | 0 |
+| **Score** | **44.0 / 46** (95.7%) |
 
 > Scoring: ✅ = 1.0, ⚠️ env-change = 1.0, ⚠️ retry = 0.5, ❌ = 0, ⏭️ = excluded from denominator.
 
@@ -124,7 +124,7 @@ GUIClaw runs on the following stack:
 | 43 | `9f935cce` | Browse Civil Division forms | 1.0 | ✅ | Justice.gov: /forms?field_component_target_id=431 |
 | 44 | `f0b971a1` | Super Bowl 2019 season score record | 1.0 | ✅ | NFL.com: /scores/2019/post4 |
 | 45 | `cabb3bae` | Spider-man toys for kids, sort by lowest price | 1.0 | ✅ | Kohls: search + Sort Price Low-High |
-| 46 | `44ee5668` | Clear YouTube browsing history | — | ⏭️ | Requires CDP history injection setup, not yet automated |
+| 46 | `44ee5668` | Clear YouTube browsing history | 1.0 | ✅ | History injected via SQLite + URL visits. Searched youtube → select all → delete. |
 
 ## Comparison with Other Agents
 
