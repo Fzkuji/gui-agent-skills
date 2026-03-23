@@ -98,7 +98,7 @@ GUIClaw runs on the following stack:
 | 19 | `fc6d8143` | Find JFK→ORD flights on Delta | 1.0 | ⚠️ | 2nd attempt (1st blocked by cookie consent). CDP JS dismiss → pyautogui form fill |
 | 20 | `a96b564e` | Find discussion with most replies on FlightAware | 1.0 | ✅ | Footer → Community → Discussion → Top → All time → sort by Replies → "The Banter Thread" |
 | 21 | `1704f00f` | Rent large car in Zurich, Mon-Fri, sort by price | 1.0 | ✅ | Multiple auto-corrections during execution: fixed city (Airport→city), date (Apr→Mar), day (24→23). Final: Zürich, Mar 23-27, Large, Price |
-| 22 | `f3b19d1e` | Find FAQ page about ticket delivery on Ticketek | 1.0 | ✅ | ⚠️ Website restructured: old URL `Ticket-Delivery-FAQs` no longer exists (now `Ticket-Delivery`). Eval passed on URL pattern match but actual page shows 404. |
+| 22 | `f3b19d1e` | Find FAQ page about ticket delivery on Ticketek | 1.0 | ⚠️ | Website restructured: old URL `Ticket-Delivery-FAQs` no longer exists (now `Ticket-Delivery`). Eval passed on URL pattern match but actual page shows 404. |
 | 23 | `82bc8d6a` | Look up Mumbai→Stockholm flight on Qatar Airways | 1.0 | ✅ | From=BOM, To=STO, Date=2026-03-23 (next Monday) |
 | 24 | `c1fa57f3` | Open baggage fee calculator on United Airlines | 1.0 | ✅ | OCR-guided: Home → Travel Info → Baggage → Calculator |
 | 25 | `da46d875` | Book TAP appointment at MBTA Charlie Card Store | 0.0 | ❌ | Env change: Outlook Bookings for Nov 2, 2026 has no 10:15 AM slot (available: 8:30-8:55, 9:25, 11:40-11:55 only). As of 2026-03, this time slot does not exist. All other steps completed successfully (service selected, date selected, form ready). |
