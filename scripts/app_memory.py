@@ -407,6 +407,130 @@ def identify_or_create_state(states, detected_components, components_data, descr
     return new_id, states
 
 
+def identify_current_state(states, detected_components, components_data):
+    """Identify which known state matches the detected components.
+
+    Pure identification — does NOT create new states (unlike identify_or_create_state).
+    Uses Jaccard similarity with defining_components.
+    Filters to stable components (seen_count >= 2).
+
+    Args:
+        states: states dict from states.json
+        detected_components: set of component names detected
+        components_data: full components dict (for seen_count check)
+
+    Returns:
+        (state_id, jaccard_score) or (None, 0.0)
+    """
+    # Filter to stable components (seen at least twice)
+    stable_set = set()
+    for name in detected_components:
+        comp = components_data.get(name, {})
+        if comp.get("seen_count", 0) >= 2:
+            stable_set.add(name)
+
+    if not stable_set:
+        return None, 0.0
+
+    best_state_id = None
+    best_jaccard = 0.0
+
+    for state_id, state_data in states.items():
+        defining = set(state_data.get("defining_components", []))
+        if not defining:
+            continue
+        j = _jaccard(stable_set, defining)
+        if j > best_jaccard:
+            best_jaccard = j
+            best_state_id = state_id
+
+    if best_jaccard > 0.7 and best_state_id:
+        return best_state_id, best_jaccard
+
+    return None, 0.0
+
+
+def quick_template_check(app_dir, component_names, img=None):
+    """Only check if specified components are visible on screen.
+
+    Faster than match_all_components — only matches the needed templates.
+
+    Args:
+        app_dir: Path to app/site directory
+        component_names: list of component names to check
+        img: pre-loaded screenshot (None = auto capture on Mac)
+
+    Returns:
+        (matched_names: set, total: int, ratio: float)
+    """
+    app_dir = Path(app_dir)
+    components = load_components(app_dir)
+
+    if not component_names:
+        return set(), 0, 0.0
+
+    # Auto-capture screenshot if not provided
+    if img is None:
+        import platform
+        if platform.system() == "Darwin":
+            screen_path = "/tmp/gui_agent_quick_check.png"
+            subprocess.run(["screencapture", "-x", screen_path],
+                           capture_output=True, timeout=5)
+            img = cv2.imread(screen_path)
+        if img is None:
+            return set(), len(component_names), 0.0
+
+    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    matched = set()
+
+    for comp_name in component_names:
+        comp_data = components.get(comp_name)
+        if not comp_data or not comp_data.get("icon_file"):
+            continue
+
+        template_path = app_dir / comp_data["icon_file"]
+        if not template_path.exists():
+            continue
+
+        template = cv2.imread(str(template_path))
+        if template is None:
+            continue
+
+        gray_tpl = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+        if (gray_tpl.shape[0] > gray_img.shape[0] or
+                gray_tpl.shape[1] > gray_img.shape[1]):
+            continue
+
+        try:
+            result = cv2.matchTemplate(gray_img, gray_tpl, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            if max_val >= 0.8:
+                matched.add(comp_name)
+        except Exception:
+            continue
+
+    total = len(component_names)
+    ratio = len(matched) / total if total > 0 else 0.0
+    return matched, total, ratio
+
+
+def load_workflows(app_dir):
+    """Load workflows.json from app/site directory. Returns dict."""
+    wf_path = Path(app_dir) / "workflows.json"
+    if wf_path.exists():
+        with open(wf_path) as f:
+            return json.load(f)
+    return {}
+
+
+def save_workflows(app_dir, workflows):
+    """Save workflows.json to app/site directory."""
+    wf_path = Path(app_dir) / "workflows.json"
+    with open(wf_path, "w") as f:
+        json.dump(workflows, f, indent=2, ensure_ascii=False)
+
+
 def merge_similar_states(states, transitions, threshold=0.85):
     """Merge states with highly similar defining_components.
 
@@ -1954,41 +2078,6 @@ def learn_from_screenshot(img_path, domain=None, app_name="chromium", page_name=
     return {"saved": len(page_components), "new": new_count, "components": page_components}
 
 
-def assess_change(before_img_path, after_img_path):
-    """Assess page change by pixel comparison of before/after screenshots.
-
-    Args:
-        before_img_path: Screenshot before click
-        after_img_path: Screenshot after click
-
-    Returns:
-        (change_type, change_ratio)
-        change_type: "no_change" | "minor_change" | "page_change"
-        change_ratio: 0.0 ~ 1.0, fraction of pixels that changed
-    """
-    before = cv2.imread(str(before_img_path))
-    after = cv2.imread(str(after_img_path))
-
-    if before is None or after is None:
-        print(f"  ⚠️ assess_change: could not read images")
-        return "page_change", 1.0
-
-    # Different dimensions → definitely a big change
-    if before.shape != after.shape:
-        return "page_change", 1.0
-
-    diff = cv2.absdiff(before, after)
-    # Count pixels with difference > 30 (noise threshold)
-    change_ratio = float(np.count_nonzero(diff > 30)) / diff.size
-
-    if change_ratio < 0.01:
-        return "no_change", change_ratio
-    elif change_ratio < 0.10:
-        return "minor_change", change_ratio
-    else:
-        return "page_change", change_ratio
-
-
 def record_page_transition(before_img_path, after_img_path, click_label, click_pos,
                            domain=None, app_name="chromium", retina=False):
     """Record a state transition from before/after screenshots.
@@ -2007,19 +2096,6 @@ def record_page_transition(before_img_path, after_img_path, click_label, click_p
 
     Returns: dict with appeared/disappeared/transition info
     """
-    # Pixel-level change assessment first
-    change_type, change_ratio = assess_change(before_img_path, after_img_path)
-    if change_type == "no_change":
-        print(f"  ⚠️ No visible change after click (ratio={change_ratio:.4f})")
-        return {
-            "change_type": "no_change",
-            "change_ratio": change_ratio,
-            "appeared": [],
-            "disappeared": [],
-            "from": f"before_{click_label}",
-            "to": f"before_{click_label}",
-        }
-
     sys.path.insert(0, str(SCRIPT_DIR))
     import ui_detector
 
@@ -2113,8 +2189,6 @@ def record_page_transition(before_img_path, after_img_path, click_label, click_p
             "click_pos": list(click_pos),
             "appeared_count": len(appeared),
             "disappeared_count": len(disappeared),
-            "change_type": change_type,
-            "change_ratio": round(change_ratio, 4),
         }
 
     meta["last_updated"] = now
@@ -2122,14 +2196,12 @@ def record_page_transition(before_img_path, after_img_path, click_label, click_p
     save_states(save_dir, states)
     save_transitions(save_dir, transitions)
 
-    print(f"  🔄 Transition: {from_state} → [{click_label}] → {to_state} ({change_type}, {change_ratio:.4f})")
+    print(f"  🔄 Transition: {from_state} → [{click_label}] → {to_state}")
     return {
         "appeared": sorted(list(appeared)),
         "disappeared": sorted(list(disappeared)),
         "from": from_state,
         "to": to_state,
-        "change_type": change_type,
-        "change_ratio": round(change_ratio, 4),
     }
 
 

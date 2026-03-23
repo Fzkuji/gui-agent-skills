@@ -19,6 +19,7 @@ It bridges SKILL.md rules and the underlying scripts (app_memory, ui_detector, g
 import argparse
 import json
 import os
+import platform
 import shlex
 import subprocess
 import sys
@@ -487,6 +488,8 @@ def save_workflow(app_name, workflow_name, target_state, description=None, notes
     A workflow is NOT a linear step list. It's a target state in the app's
     state graph. Execution uses find_path() to navigate from any current state.
 
+    Workflows are stored in workflows.json (one file per app, not scattered files).
+
     Args:
         app_name: App name
         workflow_name: e.g., "open_宋文涛_chat", "go_to_contacts"
@@ -494,145 +497,359 @@ def save_workflow(app_name, workflow_name, target_state, description=None, notes
         description: one-line summary for intent matching (max 30 words)
         notes: lessons learned
     """
+    from app_memory import load_workflows, save_workflows
+
     if description and len(description.split()) > 30:
         description = " ".join(description.split()[:30])
+
     app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_")
     app_dir.mkdir(parents=True, exist_ok=True)
 
-    workflows_dir = app_dir / "workflows"
-    workflows_dir.mkdir(exist_ok=True)
+    workflows = load_workflows(app_dir)
+    now = time.strftime("%Y-%m-%d %H:%M:%S")
 
-    workflow = {
-        "app": app_name,
-        "workflow": workflow_name,
+    existing = workflows.get(workflow_name, {})
+    workflows[workflow_name] = {
         "target_state": target_state,
         "description": description or workflow_name.replace("_", " "),
-        "notes": notes or [],
-        "last_run": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "notes": notes or existing.get("notes", []),
+        "created_at": existing.get("created_at", now),
+        "last_run": now,
+        "run_count": existing.get("run_count", 0),
+        "success_count": existing.get("success_count", 0),
     }
 
-    path = workflows_dir / f"{workflow_name}.json"
-    with open(path, "w") as f:
-        json.dump(workflow, f, indent=2, ensure_ascii=False)
-
+    save_workflows(app_dir, workflows)
     print(f"  💾 Workflow '{workflow_name}' saved → target: {target_state}")
     update_app_summary(app_name)
 
 
-def run_workflow(app_name, workflow_name):
-    """Run a saved workflow by navigating the state graph to the target state.
+def execute_workflow(app_name, target_state, domain=None, img_path=None):
+    """Execute workflow with tiered verification.
 
-    1. Load workflow → get target_state
-    2. Detect current state
-    3. find_path(current, target) → click sequence
-    4. Execute each click with pixel-level change verification
+    1. Identify current state (Level 1: detect_all)
+    2. find_path to target
+    3. For each step:
+       a. Execute click (via click_component or click_at)
+       b. Level 0: quick_template_check target state's defining_components
+          - matched_ratio > 0.7 → confirmed, next step
+       c. Level 1: detect_all + identify_current_state
+          - matches expected → continue
+          - matches different known state → re-route
+       d. Level 2: return fallback for LLM
+
+    Args:
+        app_name: app name
+        target_state: target state ID (s_xxxxx)
+        domain: website domain (browser)
+        img_path: current screenshot (remote VM; None = auto capture)
+
+    Returns:
+        ("success", state_id)
+        ("fallback", current_state_id, step_index, reason)
+        ("error", message)
+    """
+    import cv2
+    from app_memory import (
+        find_path, identify_current_state, quick_template_check,
+        click_component, get_app_dir, get_site_dir,
+        load_components, load_states, load_transitions,
+        load_workflows, save_workflows,
+    )
+
+    app_name = resolve_app_name(app_name)
+
+    # Resolve app/site directory
+    if domain:
+        app_dir = get_site_dir(app_name, domain)
+    else:
+        app_dir = get_app_dir(app_name)
+
+    states = load_states(app_dir)
+    components_data = load_components(app_dir)
+
+    if target_state not in states:
+        return ("error", f"Target state '{target_state}' not found in states.json")
+
+    # --- Step 1: Identify current state (Level 1 — full detect_all) ---
+    activate_app(app_name)
+    time.sleep(0.5)
+
+    sys.path.insert(0, str(SCRIPT_DIR))
+    import ui_detector
+
+    # Take screenshot (or use provided)
+    if img_path:
+        screen_img = cv2.imread(str(img_path))
+    else:
+        import platform
+        if platform.system() == "Darwin":
+            screen_path = "/tmp/gui_agent_wf_screen.png"
+            subprocess.run(["screencapture", "-x", screen_path],
+                           capture_output=True, timeout=5)
+            screen_img = cv2.imread(screen_path)
+            img_path = screen_path
+        else:
+            return ("error", "No screenshot provided (non-Mac, pass img_path)")
+
+    if screen_img is None:
+        return ("error", "Could not load screenshot")
+
+    # Full detection for initial state identification
+    try:
+        icon_els, text_els, all_els, det_w, det_h = ui_detector.detect_all(str(img_path))
+    except Exception as e:
+        return ("error", f"detect_all failed: {e}")
+
+    # Match all components against screenshot
+    detected_names = set()
+    gray_img = cv2.cvtColor(screen_img, cv2.COLOR_BGR2GRAY)
+    for comp_name, comp_data in components_data.items():
+        if not comp_data.get("icon_file"):
+            continue
+        tpl_path = Path(app_dir) / comp_data["icon_file"]
+        if not tpl_path.exists():
+            continue
+        template = cv2.imread(str(tpl_path))
+        if template is None:
+            continue
+        gray_tpl = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+        if (gray_tpl.shape[0] > gray_img.shape[0] or
+                gray_tpl.shape[1] > gray_img.shape[1]):
+            continue
+        try:
+            result = cv2.matchTemplate(gray_img, gray_tpl, cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, _ = cv2.minMaxLoc(result)
+            if max_val >= 0.8:
+                detected_names.add(comp_name)
+        except Exception:
+            continue
+
+    current_state_id, jaccard = identify_current_state(states, detected_names, components_data)
+    print(f"  📍 Current state: {current_state_id} (jaccard={jaccard:.2f}, {len(detected_names)} components matched)")
+
+    # Already at target?
+    if current_state_id == target_state:
+        print(f"  ✅ Already at target state '{target_state}'")
+        return ("success", target_state)
+
+    if current_state_id is None:
+        return ("fallback", None, -1, f"Cannot identify current state ({len(detected_names)} components detected)")
+
+    # --- Step 2: Find path ---
+    path = find_path(app_name, current_state_id, target_state)
+    if path is None:
+        return ("error", f"No path from '{current_state_id}' to '{target_state}'")
+    if not path:
+        return ("success", target_state)
+
+    print(f"  🗺️ Path: {current_state_id} → {' → '.join(s for _, s in path)}")
+    print(f"  📍 {len(path)} steps needed")
+
+    # Get target state's defining components for Level 0 checks
+    target_defining = states[target_state].get("defining_components", [])
+
+    # --- Step 3: Execute each step ---
+    for i, (action, expected_next_state) in enumerate(path):
+        # Extract click component from action string "click:component_name"
+        if action.startswith("click:"):
+            click_target = action[len("click:"):]
+        else:
+            click_target = action
+
+        print(f"  [{i+1}/{len(path)}] {action} → {expected_next_state}")
+
+        # Execute click
+        ok, msg = click_component(app_name, click_target)
+        if not ok:
+            # Try click_at via match if click_component fails
+            return ("fallback", current_state_id, i, f"Click failed: {msg}")
+
+        time.sleep(0.5)
+
+        # --- Level 0: Quick template check (target state's defining components) ---
+        if target_defining:
+            # Take fresh screenshot
+            if img_path and not (platform.system() == "Darwin"):
+                # Remote VM: caller must provide new screenshot
+                # For now, skip Level 0 on remote
+                pass
+            else:
+                screen_path_l0 = "/tmp/gui_agent_wf_l0.png"
+                subprocess.run(["screencapture", "-x", screen_path_l0],
+                               capture_output=True, timeout=5)
+                l0_img = cv2.imread(screen_path_l0)
+
+                if l0_img is not None:
+                    matched, total, ratio = quick_template_check(
+                        app_dir, target_defining, img=l0_img)
+                    if ratio > 0.7:
+                        print(f"  ✅ Level 0: Target state confirmed ({len(matched)}/{total} = {ratio:.0%})")
+                        return ("success", target_state)
+
+        # --- Level 1: Full detect_all + identify_current_state ---
+        if not (platform.system() == "Darwin"):
+            # Remote VM: can't auto-screenshot, fallback
+            return ("fallback", current_state_id, i, "Remote VM: need new screenshot for verification")
+
+        screen_path_l1 = "/tmp/gui_agent_wf_l1.png"
+        subprocess.run(["screencapture", "-x", screen_path_l1],
+                       capture_output=True, timeout=5)
+        l1_img = cv2.imread(screen_path_l1)
+
+        if l1_img is None:
+            return ("fallback", current_state_id, i, "Could not capture screenshot for Level 1")
+
+        # Re-detect components
+        l1_detected = set()
+        gray_l1 = cv2.cvtColor(l1_img, cv2.COLOR_BGR2GRAY)
+        for comp_name, comp_data in components_data.items():
+            if not comp_data.get("icon_file"):
+                continue
+            tpl_path = Path(app_dir) / comp_data["icon_file"]
+            if not tpl_path.exists():
+                continue
+            template = cv2.imread(str(tpl_path))
+            if template is None:
+                continue
+            gray_tpl = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+            if (gray_tpl.shape[0] > gray_l1.shape[0] or
+                    gray_tpl.shape[1] > gray_l1.shape[1]):
+                continue
+            try:
+                result = cv2.matchTemplate(gray_l1, gray_tpl, cv2.TM_CCOEFF_NORMED)
+                _, max_val, _, _ = cv2.minMaxLoc(result)
+                if max_val >= 0.8:
+                    l1_detected.add(comp_name)
+            except Exception:
+                continue
+
+        new_state_id, new_jaccard = identify_current_state(states, l1_detected, components_data)
+
+        if new_state_id == expected_next_state:
+            print(f"  ✅ Level 1: Reached expected state '{expected_next_state}' (jaccard={new_jaccard:.2f})")
+            current_state_id = new_state_id
+            continue
+        elif new_state_id == target_state:
+            print(f"  ✅ Level 1: Already at target '{target_state}' (jaccard={new_jaccard:.2f})")
+            return ("success", target_state)
+        elif new_state_id and new_state_id != current_state_id:
+            # Landed on a different known state — try to re-route
+            print(f"  🔀 Level 1: Landed on '{new_state_id}' instead of '{expected_next_state}', re-routing...")
+            reroute_path = find_path(app_name, new_state_id, target_state)
+            if reroute_path is not None:
+                # Recursively execute from new state (but use iteration to avoid deep recursion)
+                current_state_id = new_state_id
+                # Replace remaining path with reroute
+                path = path[:i+1] + reroute_path
+                print(f"  🗺️ New path: {' → '.join(s for _, s in reroute_path)}")
+                continue
+            else:
+                return ("fallback", new_state_id, i, f"Re-route failed: no path from '{new_state_id}' to '{target_state}'")
+        else:
+            # --- Level 2: Unknown state, return for LLM ---
+            return ("fallback", new_state_id, i,
+                    f"Unknown state after step {i+1} (detected {len(l1_detected)} components, jaccard={new_jaccard:.2f})")
+
+    # If we've gone through all steps but haven't confirmed target
+    # Do a final Level 0 check
+    if target_defining:
+        screen_path_final = "/tmp/gui_agent_wf_final.png"
+        subprocess.run(["screencapture", "-x", screen_path_final],
+                       capture_output=True, timeout=5)
+        final_img = cv2.imread(screen_path_final)
+        if final_img is not None:
+            matched, total, ratio = quick_template_check(app_dir, target_defining, img=final_img)
+            if ratio > 0.7:
+                print(f"  ✅ Final check: Target state confirmed ({len(matched)}/{total} = {ratio:.0%})")
+                return ("success", target_state)
+
+    return ("fallback", current_state_id, len(path) - 1,
+            f"Completed all steps but could not confirm target state '{target_state}'")
+
+
+def run_workflow(app_name, workflow_name):
+    """Run a saved workflow by name.
+
+    Loads the workflow from workflows.json, then delegates to execute_workflow.
 
     Returns: (success, message)
     """
-    from app_memory import (find_path, identify_state_by_components,
-                            _detect_visible_components, click_component,
-                            assess_change)
+    from app_memory import load_workflows, save_workflows, get_app_dir
 
     app_name = resolve_app_name(app_name)
-    app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_") / "workflows"
-    wf_path = app_dir / f"{workflow_name}.json"
+    app_dir = get_app_dir(app_name)
 
-    if not wf_path.exists():
+    # Try workflows.json first (new format)
+    workflows = load_workflows(app_dir)
+    wf = workflows.get(workflow_name)
+
+    # Fall back to old scattered file format
+    if not wf:
+        old_path = app_dir / "workflows" / f"{workflow_name}.json"
+        if old_path.exists():
+            wf = json.load(open(old_path))
+
+    if not wf:
         return False, f"Workflow '{workflow_name}' not found"
 
-    wf = json.load(open(wf_path))
     target = wf.get("target_state")
     if not target:
         return False, f"Workflow '{workflow_name}' has no target_state"
 
-    # Detect current state
-    activate_app(app_name)
-    time.sleep(0.5)
-    visible = _detect_visible_components(app_name)
-    current, f1 = identify_state_by_components(app_name, visible)
+    result = execute_workflow(app_name, target)
 
-    if not current:
-        return False, f"Cannot identify current state ({len(visible)} components visible)"
+    # Update run stats
+    if workflow_name in workflows:
+        workflows[workflow_name]["run_count"] = workflows[workflow_name].get("run_count", 0) + 1
+        workflows[workflow_name]["last_run"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        if result[0] == "success":
+            workflows[workflow_name]["success_count"] = workflows[workflow_name].get("success_count", 0) + 1
+        save_workflows(app_dir, workflows)
 
-    if current == target:
-        print(f"  ✅ Already at target state '{target}'")
-        return True, f"Already at '{target}'"
-
-    # Find path
-    path = find_path(app_name, current, target)
-    if path is None:
-        return False, f"No path from '{current}' to '{target}' in state graph"
-
-    print(f"  🗺️ Path: {current} → {' → '.join(s for _, s in path)}")
-    print(f"  📍 {len(path)} clicks needed")
-
-    # Execute with change verification
-    for i, (click, next_state) in enumerate(path):
-        print(f"  [{i+1}/{len(path)}] Clicking '{click}' → {next_state}")
-
-        # Screenshot before click
-        before_img = f"/tmp/wf_before_{i}.png"
-        subprocess.run(["screencapture", "-x", before_img], capture_output=True, timeout=5)
-
-        ok, msg = click_component(app_name, click)
-        if not ok:
-            return False, f"Step {i+1} failed: {msg}"
-
-        time.sleep(0.5)
-
-        # Screenshot after click and verify change
-        after_img = f"/tmp/wf_after_{i}.png"
-        subprocess.run(["screencapture", "-x", after_img], capture_output=True, timeout=5)
-
-        change_type, change_ratio = assess_change(before_img, after_img)
-
-        if change_type == "no_change":
-            # Wait and retry
-            print(f"  ⚠️ No change detected after click, waiting 1.5s...")
-            time.sleep(1.5)
-            subprocess.run(["screencapture", "-x", after_img], capture_output=True, timeout=5)
-            change_type, change_ratio = assess_change(before_img, after_img)
-
-            if change_type == "no_change":
-                # Retry click
-                print(f"  ⚠️ Still no change, retrying click...")
-                ok, msg = click_component(app_name, click)
-                if not ok:
-                    return False, f"Step {i+1} retry failed: {msg}"
-                time.sleep(1.0)
-                subprocess.run(["screencapture", "-x", after_img], capture_output=True, timeout=5)
-                change_type, change_ratio = assess_change(before_img, after_img)
-
-                if change_type == "no_change":
-                    return False, f"Step {i+1}: click '{click}' had no effect after retry (ratio={change_ratio:.4f})"
-
-        print(f"  ✅ Change verified: {change_type} (ratio={change_ratio:.4f})")
-        time.sleep(0.3)
-
-    return True, f"Reached '{target}' via {len(path)} clicks"
+    if result[0] == "success":
+        return True, f"Reached '{target}' ✅"
+    elif result[0] == "fallback":
+        return False, f"Fallback at step {result[2]}: {result[3]}"
+    else:
+        return False, f"Error: {result[1]}"
 
 
 def list_all_workflows():
     """List all workflows across all apps. Returns compact summary."""
+    from app_memory import load_workflows as _load_wf
     results = []
-    
-    # App-specific workflows
+
     if MEMORY_DIR.exists():
         for app_dir in sorted(MEMORY_DIR.iterdir()):
-            wf_dir = app_dir / "workflows"
-            if not wf_dir.exists():
+            if not app_dir.is_dir():
                 continue
             app_name = app_dir.name
-            for f in sorted(wf_dir.glob("*.json")):
-                with open(f) as fh:
-                    wf = json.load(fh)
+
+            # New format: workflows.json
+            wf_data = _load_wf(app_dir)
+            for name, wf in wf_data.items():
                 results.append({
-                    "app": wf.get("app", app_name),
-                    "name": wf.get("workflow", f.stem),
+                    "app": app_name,
+                    "name": name,
                     "description": wf.get("description", ""),
-                    "steps": len(wf.get("steps", [])),
+                    "target_state": wf.get("target_state", ""),
                 })
-    
+
+            # Old format: workflows/*.json
+            old_dir = app_dir / "workflows"
+            if old_dir.exists():
+                for f in sorted(old_dir.glob("*.json")):
+                    if f.stem not in wf_data:
+                        with open(f) as fh:
+                            wf = json.load(fh)
+                        results.append({
+                            "app": wf.get("app", app_name),
+                            "name": wf.get("workflow", f.stem),
+                            "description": wf.get("description", ""),
+                            "target_state": wf.get("target_state", ""),
+                        })
+
     return results
 
 
@@ -675,38 +892,69 @@ def _show_workflows(app_name, workflow_name=""):
         else:
             print(f"Workflow '{workflow_name}' not found for {app_name}")
         return
-    
-    app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_") / "workflows"
-    if not app_dir.exists():
-        print(f"No workflows for {app_name}")
-        return
-    
+
+    from app_memory import load_workflows as _load_wf, get_app_dir
+    app_dir = get_app_dir(app_name)
+
+    # New format: workflows.json
+    workflows_data = _load_wf(app_dir)
     workflows = []
-    for f in sorted(app_dir.glob("*.json")):
-        with open(f) as fh:
-            wf = json.load(fh)
+    for name, wf in workflows_data.items():
         workflows.append({
-            "name": wf.get("workflow", f.stem),
+            "name": name,
             "description": wf.get("description", ""),
-            "steps": len(wf.get("steps", [])),
+            "target_state": wf.get("target_state", ""),
             "last_run": wf.get("last_run", ""),
+            "run_count": wf.get("run_count", 0),
+            "success_count": wf.get("success_count", 0),
         })
-    
+
+    # Also check old format: workflows/*.json
+    old_dir = app_dir / "workflows"
+    if old_dir.exists():
+        for f in sorted(old_dir.glob("*.json")):
+            if f.stem not in workflows_data:
+                with open(f) as fh:
+                    wf = json.load(fh)
+                workflows.append({
+                    "name": wf.get("workflow", f.stem),
+                    "description": wf.get("description", ""),
+                    "target_state": wf.get("target_state", ""),
+                    "last_run": wf.get("last_run", ""),
+                    "run_count": 0,
+                    "success_count": 0,
+                })
+
     if not workflows:
         print(f"No workflows for {app_name}")
         return
-    
+
     print(f"Workflows for {app_name}:")
     for wf in workflows:
-        print(f"  {wf['name']} — {wf['description']} ({wf['steps']} steps, last: {wf['last_run']})")
+        stats = f"runs={wf['run_count']}, success={wf['success_count']}" if wf['run_count'] else "never run"
+        print(f"  {wf['name']} — {wf['description']} → {wf['target_state']} ({stats})")
 
 
 def load_workflow(app_name, workflow_name):
-    """Load a saved workflow. Returns None if not found."""
-    app_dir = MEMORY_DIR / app_name.lower().replace(" ", "_")
-    path = app_dir / "workflows" / f"{workflow_name}.json"
-    if path.exists():
-        with open(path) as f:
+    """Load a saved workflow. Returns None if not found.
+
+    Checks workflows.json first, then falls back to old scattered file format.
+    """
+    from app_memory import load_workflows, get_app_dir
+    app_dir = get_app_dir(app_name)
+
+    # New format: workflows.json
+    workflows = load_workflows(app_dir)
+    if workflow_name in workflows:
+        wf = workflows[workflow_name].copy()
+        wf["workflow"] = workflow_name
+        wf["app"] = app_name
+        return wf
+
+    # Old format: workflows/<name>.json
+    old_path = app_dir / "workflows" / f"{workflow_name}.json"
+    if old_path.exists():
+        with open(old_path) as f:
             return json.load(f)
     return None
 

@@ -1,56 +1,33 @@
 ---
 name: gui-workflow
-description: "State graph navigation, workflow recording and replay."
+description: "State graph navigation, workflow recording and replay with tiered verification."
 ---
 
-# Workflow — State Graph Navigation
+# Workflow — Target State Verification Mode
 
 ## Core Concept
 
-Every click records a **pending** state transition: `(from_state, click_component, to_state)`.
-Pending transitions are **NOT saved to profile** until the workflow succeeds.
+Workflows navigate to a **target state** using the app's state graph.
+Verification uses **tiered cost escalation**: cheapest check first, only escalate if needed.
 
 ```
-EXPLORING (trial & error) → pending transitions accumulate
-  ↓ workflow succeeds
-CONFIRM → transitions saved to profile permanently
-  ↓ workflow fails
-DISCARD → pending transitions thrown away
-```
+Level 0: Template Match (~0.3s, 0 tokens)
+  → Check target state's defining_components on screen
+  → matched_ratio > 0.7 → confirmed ✅
 
-## Change Detection
+Level 1: detect_all (~2s, 0 tokens)
+  → Full component detection + identify_current_state
+  → matches expected → continue
+  → different known state → re-route via find_path
+  → unknown state → escalate to Level 2
 
-Every click is verified with **pixel-level comparison** (`assess_change`):
-
-| change_ratio | change_type | Meaning |
-|---|---|---|
-| < 0.01 | `no_change` | Screenshot nearly identical — click may have missed |
-| 0.01 – 0.10 | `minor_change` | Popup, toggle, partial UI update |
-| > 0.10 | `page_change` | Navigation, full page transition |
-
-When `run_workflow()` detects `no_change`:
-1. Wait 1.5s → re-screenshot → check again
-2. If still no change → retry click → wait 1.0s → check
-3. If still no change → abort with error
-
-Transitions record `change_type` and `change_ratio` for debugging.
-
-## State Identification
-
-States are matched using **Jaccard / F1 similarity** against stored component lists.
-
-Component lists support both formats:
-- **New format:** `defining_components` — curated list of key UI elements
-- **Old format:** `visible` — all visible components (backward compatible)
-
-```python
-# identify_state_by_components checks both:
-state_comps = set(state_data.get("defining_components", []) or state_data.get("visible", []))
+Level 2: LLM Fallback
+  → Return ("fallback", state, step, reason) for LLM to decide
 ```
 
 ## Workflow Lifecycle
 
-### 1. First Time (Exploring)
+### 1. Exploring (First Time)
 
 The agent doesn't know the path. Every click is trial and error:
 
@@ -60,7 +37,7 @@ click_and_record(app, "Scan", x, y)      # pending: unknown → click:Scan
 click_and_record(app, "Run", x, y)        # pending: click:Scan → click:Run
 
 # Workflow succeeded! Commit all transitions
-confirm_transitions(app)                   # → saved to profile
+confirm_transitions(app)                   # → saved to transitions.json
 
 # OR workflow failed — discard everything
 discard_transitions(app)                   # → nothing saved, graph stays clean
@@ -68,25 +45,94 @@ discard_transitions(app)                   # → nothing saved, graph stays clea
 
 ### 2. Save Workflow
 
-Only after the FULL workflow succeeds end-to-end:
+After full end-to-end success:
 
 ```python
-save_workflow(app, "smart_cleanup", target_state="click:cleanup_done",
-             description="Smart Scan → Run → handle Quit dialog → done")
+save_workflow(app, "smart_cleanup", target_state="s_c8e5f3",
+             description="Navigate to cleanup complete page")
 ```
 
-### 3. Replay (Known Path)
+### 3. Auto Mode (Known Path)
 
 ```python
+# By name
 run_workflow(app, "smart_cleanup")
-# Detects current state → find_path to target → execute clicks
-# Each click verified with pixel comparison (assess_change)
+
+# By target state directly
+execute_workflow(app, "s_c8e5f3")
+```
+
+`execute_workflow` flow:
+1. **Level 1** detect_all → identify current state
+2. `find_path(current, target)` → BFS shortest path
+3. For each step:
+   - Click component
+   - **Level 0**: quick_template_check target defining_components
+     - ratio > 0.7 → done ✅
+   - **Level 1**: detect_all + identify_current_state
+     - matches expected → continue
+     - different known state → re-route
+   - **Level 2**: return fallback for LLM
+
+## Storage Format
+
+Workflows are stored in `workflows.json` per app (same directory as meta.json):
+
+```json
+{
+  "check_baggage_fee": {
+    "target_state": "s_c8e5f3",
+    "description": "Navigate to baggage fee calculator",
+    "created_at": "2026-03-23 15:30:00",
+    "last_run": "2026-03-23 16:00:00",
+    "run_count": 3,
+    "success_count": 2,
+    "notes": []
+  }
+}
+```
+
+## State Identification
+
+States are matched using **Jaccard similarity** against `defining_components`.
+
+- `identify_current_state()` — pure identification, never creates new states
+- `identify_or_create_state()` — identifies OR creates (for exploration mode)
+- Filters to **stable components** (seen_count >= 2) to avoid noise
+
+```python
+from app_memory import identify_current_state, load_states, load_components
+
+states = load_states(app_dir)
+components = load_components(app_dir)
+state_id, jaccard = identify_current_state(states, detected_set, components)
+```
+
+## Quick Template Check
+
+Fast verification without full detection:
+
+```python
+from app_memory import quick_template_check
+
+matched, total, ratio = quick_template_check(app_dir, ["btn_submit", "nav_bar", "logo"], img=screenshot)
+if ratio > 0.7:
+    print("Target state confirmed")
 ```
 
 ## CLI Commands
 
 ```bash
-# View committed transitions
+# Run a workflow
+python3 scripts/agent.py run_workflow --app "CleanMyMac X" --workflow smart_cleanup
+
+# View workflows
+python3 scripts/agent.py workflows --app "CleanMyMac X"
+
+# View all workflows across all apps
+python3 scripts/agent.py all_workflows
+
+# View committed transitions (state graph)
 python3 scripts/app_memory.py transitions --app "CleanMyMac X"
 
 # View pending (uncommitted) transitions
@@ -102,22 +148,20 @@ python3 scripts/app_memory.py discard --app "CleanMyMac X"
 python3 scripts/app_memory.py path --app "CleanMyMac X" --component from_state --contact to_state
 ```
 
-## Navigation
+## Return Values
 
-```python
-from app_memory import find_path, identify_state_by_components, _detect_visible_components
+`execute_workflow()` returns one of:
 
-visible = _detect_visible_components(app_name)
-current, f1 = identify_state_by_components(app_name, visible)
-path = find_path(app_name, current, target_state)
-for click, next_state in path:
-    click_component(app_name, click)
-```
+| Result | Meaning |
+|---|---|
+| `("success", state_id)` | Reached target state |
+| `("fallback", state_id, step_idx, reason)` | Need LLM intervention |
+| `("error", message)` | Cannot execute (no path, missing state, etc.) |
 
 ## Rules
 
 1. **Never save transitions from failed/aborted workflows** — use `discard_transitions()`
 2. **Only `confirm_transitions()` after full end-to-end success**
-3. **First time exploring = trial and error** — expect mistakes, don't persist them
-4. **Workflow = target state** — the path is computed at runtime from the graph
-5. **Every click is verified** — `assess_change` catches missed clicks and retries automatically
+3. **Workflow = target state** — the path is computed at runtime from the graph
+4. **Tiered verification** — Level 0 first, only escalate when needed
+5. **Re-routing** — if Level 1 finds a different known state, BFS finds a new path
