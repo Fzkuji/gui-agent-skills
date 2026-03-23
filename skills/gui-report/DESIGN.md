@@ -2,90 +2,71 @@
 
 > 最后更新：2026-03-24
 
-## 核心目的
+## 核心设计
 
-追踪每个 GUI 任务的性能数据：时间、token 消耗、操作次数。用于：
-- 对比不同策略的效率
-- 发现性能瓶颈（哪步最慢？哪步 token 最多？）
-- Benchmark 结果量化
+**全自动，不依赖 LLM 记得调用任何命令。**
 
-## 当前状态
+### 三层自动化
 
-✅ **完全自动化**。tracker 在第一次 `detect_all` / `learn_from_screenshot` 时自动启动，所有计数器自动 tick，task 名自动从 app/domain 推断。
+1. **auto-start**：`detect_all()` 是所有 GUI 操作的统一入口，首次调用时自动启动 tracker
+2. **auto-tick**：各函数内部自动增加对应计数器，LLM 不需要手动 tick（除了 image_calls）
+3. **auto-save**：OpenClaw plugin 监听 `agent_end` hook，turn 结束时自动保存 report
 
-## 自动化设计决策
+### 为什么 image_calls 不能自动 tick
 
-### 为什么自动化？
+image tool 的调用发生在 LLM 层面（LLM 决定调用 image tool 分析截图），不在 GUIClaw 的 Python 代码层面。代码感知不到 LLM 用了 image tool。所以这是唯一需要手动 tick 的计数器。
 
-之前 `start` 和 `report` 需要手动调用，实际上从未被使用过。自动化消除了这个问题：
-- tracker 在 `_tracker_auto_tick()` 检测到无 state file 时自动启动
-- task 名从 `learn_from_screenshot` 的 `app_name/domain` 自动推断
-- `execute_workflow()` 完成时自动打印 `auto_report()` 摘要
-- 正式 `report` 命令仍可用于生成完整报告并保存到日志
+### 为什么用 plugin 而不是 skill
 
-### auto-tick 集成点
+Skill 只是 SKILL.md + 脚本，不能注入 OpenClaw 的运行时生命周期。要监听 `agent_end` 事件必须用 plugin，因为 plugin 通过 `api.on("agent_end", ...)` 注册回调。
 
-#### app_memory.py
-- `_tracker_auto_tick(counter)`: 所有检测/学习函数调用此函数
-- `_tracker_auto_start()`: 自动初始化 tracker state (task="auto")
-- `_tracker_update_task(name)`: `learn_from_screenshot` 自动更新 task 名
-- `quick_template_check()`: 自动 tick `workflow_level0`
+### agent_end hook 的发现
 
-#### agent.py
-- `_tick(counter)`: 封装 tracker 调用（best-effort）
-- `_auto_report()`: 获取摘要字符串
-- `execute_workflow()` 内部：
-  - Level 0 成功 → tick `workflow_auto_steps`
-  - Level 1 检测后 → tick `workflow_level1`
-  - Level 1 成功 → tick `workflow_auto_steps`
-  - Level 2 fallback → tick `workflow_level2` + `workflow_explore_steps`
-  - 完成时打印 `auto_report()` 摘要
+OpenClaw 文档只列出了 `before_` 系列 hook，但源码中存在完整的生命周期事件：
+- `before_model_resolve`, `before_prompt_build`, `before_agent_start`
+- **`agent_end`** — agent turn 结束（void, fire-and-forget）
+- `llm_input`, `llm_output`
+- `before_tool_call`, `after_tool_call`
+- `message_received`, `message_sending`, `message_sent`
+- `session_start`, `session_end`
+- `before_compaction`, `after_compaction`
 
-### 计数器
+### Plugin 安装方式
 
-| Counter | 自动 | 含义 |
-|---------|------|------|
-| screenshots | ✅ | 截图次数 |
-| clicks | ✅ | 点击次数 |
-| learns | ✅ | learn_from_screenshot 调用次数 |
-| transitions | ✅ | 状态转移记录次数 |
-| ocr_calls | ✅ | OCR 调用次数 |
-| detector_calls | ✅ | GPA-GUI-Detector 调用次数 |
-| image_calls | ❌ 手动 | LLM 视觉分析次数 |
-| workflow_level0 | ✅ | quick_template_check 验证次数 |
-| workflow_level1 | ✅ | detect_all 完整验证次数 |
-| workflow_level2 | ✅ | fallback to LLM 次数 |
-| workflow_auto_steps | ✅ | 自动模式执行的步数 |
-| workflow_explore_steps | ✅ | 探索模式（需要 LLM）的步数 |
-
-### Token 追踪
-
-通过读取 OpenClaw 的 sessions.json 获取任务开始和结束时的 token 数，计算差值。
-
-### auto_report() vs report()
-
-| | auto_report() | report() |
-|---|---|---|
-| 输出 | 返回字符串 | print 到 stdout |
-| state file | 不删除（继续运行） | 删除（tracker 结束）|
-| 日志 | 不保存 | 保存到 task_history.jsonl |
-| 用途 | workflow 中间摘要 | 任务最终报告 |
-
-### 安全性
-
-- 所有 tracker 操作都在 try/except 里，失败静默忽略
-- tick_counter 的 JSON 读写用 try/except 保护（不会因并发破坏主流程）
-- tracker 是 best-effort — 任何错误不影响 GUI 操作
-
-## 理想流程
+Plugin 源码在 GUIClaw 仓库的 `plugins/gui-report-hook/` 目录。`setup.sh` 自动创建 symlink：
 
 ```
-第一次 detect_all → tracker 自动启动 (task="auto")
-learn_from_screenshot → 更新 task 名为 "app_name/domain"
-  → 操作中各计数器自动 tick
-  → execute_workflow 完成时打印 auto_report
-任务结束 → tracker report（可选）
-  → 输出完整报告
-  → 保存到 logs/task_history.jsonl
-  → 清除 state file
+~/.openclaw/plugins/gui-report-hook → <GUIClaw>/plugins/gui-report-hook
 ```
+
+然后在 `openclaw.json` 里启用：
+
+```json
+{
+  "plugins": {
+    "load": { "paths": ["~/.openclaw/plugins/gui-report-hook"] },
+    "entries": { "gui-report-hook": { "enabled": true } }
+  }
+}
+```
+
+### 兜底机制
+
+如果 plugin 没装或 hook 没触发：
+- tracker 数据保存在 `.tracker_state.json` 里，不会丢
+- 下次 `start()` 被调用时（新的 detect_all），自动保存上一轮数据再清理
+
+### Report 输出维度
+
+按用户关心的维度组织，不是原始计数器列表：
+
+1. **⏱ 耗时** — 任务总时间
+2. **💰 Token 消耗** — 总量 + input/output/cache 拆分（反映真实成本）
+3. **🔍 检测** — detect_all/OCR/LLM 调用次数 + 组件总量变化
+4. **🖱 操作** — 点击/转移/学习次数
+5. **🗺 导航效率** — 自动 vs 探索步数、自动率（反映 memory 的价值）
+6. **📝 记忆变化** — 组件/状态/转移的增减量
+
+### memory snapshot 对比
+
+report 在 start 时记录所有 app/site 的组件/状态/转移数量快照，report 时再读一次，算差值。这样能准确反映"这个任务让 memory 增长了多少"。

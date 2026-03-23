@@ -1,37 +1,33 @@
 const { execSync } = require("child_process");
-const { existsSync } = require("fs");
+const { existsSync, readFileSync } = require("fs");
 const { join } = require("path");
 
-const TRACKER_STATE = join(
-  process.env.HOME || "~",
-  ".openclaw/workspace/skills/gui-agent/skills/gui-report/scripts/.tracker_state.json"
-);
+const HOME = process.env.HOME || process.env.USERPROFILE || "~";
+const SKILL_DIR = join(HOME, ".openclaw/workspace/skills/gui-agent");
+const TRACKER_STATE = join(SKILL_DIR, "skills/gui-report/scripts/.tracker_state.json");
+const TRACKER_SCRIPT = join(SKILL_DIR, "skills/gui-report/scripts/tracker.py");
+const PYTHON = join(HOME, "gui-actor-env/bin/python3");
 
-const TRACKER_SCRIPT = join(
-  process.env.HOME || "~",
-  ".openclaw/workspace/skills/gui-agent/skills/gui-report/scripts/tracker.py"
-);
-
-const PYTHON = join(process.env.HOME || "~", "gui-actor-env/bin/python3");
+const COUNTERS = [
+  "screenshots", "clicks", "learns", "transitions",
+  "image_calls", "ocr_calls", "detector_calls",
+  "workflow_level0", "workflow_level1", "workflow_level2",
+  "workflow_auto_steps", "workflow_explore_steps",
+];
 
 module.exports = function register(api) {
   api.on("agent_end", (_event, _ctx) => {
-    // Only run if tracker has active state (a GUI task was tracked)
     if (!existsSync(TRACKER_STATE)) {
       return;
     }
 
     try {
-      // Read state to check if there's real activity
-      const state = JSON.parse(require("fs").readFileSync(TRACKER_STATE, "utf-8"));
-      const hasActivity = [
-        "screenshots", "clicks", "learns", "transitions",
-        "image_calls", "ocr_calls", "detector_calls",
-        "workflow_level0", "workflow_level1", "workflow_level2",
-        "workflow_auto_steps", "workflow_explore_steps",
-      ].some((k) => (state[k] || 0) > 0);
+      const state = JSON.parse(readFileSync(TRACKER_STATE, "utf-8"));
+      const hasActivity = COUNTERS.some((k) => (state[k] || 0) > 0);
 
       if (!hasActivity) {
+        // No GUI activity this turn — just clean up
+        require("fs").unlinkSync(TRACKER_STATE);
         return;
       }
 
@@ -43,6 +39,12 @@ module.exports = function register(api) {
       });
     } catch (_e) {
       // Best-effort — never break the agent
+      try {
+        // If report failed, at least clean up stale state
+        if (existsSync(TRACKER_STATE)) {
+          require("fs").unlinkSync(TRACKER_STATE);
+        }
+      } catch (_) {}
     }
   });
 };
