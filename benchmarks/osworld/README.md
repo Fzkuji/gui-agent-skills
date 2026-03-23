@@ -164,3 +164,21 @@ Reference scores from the [OSWorld leaderboard](https://os-world.github.io/) (Ch
 - Task screenshots: `~/.openclaw/workspace/osworld_comm/tasks/<task_id>/`
 - Runner script: `~/OSWorld/guiclaw_runner.py`
 - Eval script: `~/OSWorld/eval_only.py`
+
+### Session 2 Additions (2026-03-23 afternoon)
+
+| # | Task ID | Instruction | Score | Status | Notes |
+|---|---------|-------------|-------|--------|-------|
+| 33 | `b4f95342` | Find Next Available dates for Diamond | 1.0 | ✅ | Recreation.gov: search → campground → click Next Available column header |
+| 35 | `121ba48f` | Find Dota 2 game and add all DLC to cart | 1.0 | ✅ | Steam: Ctrl+F Soundtrack → Add all DLC to Cart |
+| 44 | `44ee5668` | Clear YouTube browsing history | — | ⏭️ | Skipped: requires CDP history injection setup |
+
+### Updated Summary
+
+| Metric | Value |
+|--------|-------|
+| Tasks tested | 43 / 46 |
+| Tasks passed | **41** |
+| Tasks failed | 2 |
+| Tasks skipped | 1 |
+| **Pass rate** | **95.3%** (41/43 tested, excl. skip) |
