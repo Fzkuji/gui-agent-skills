@@ -101,22 +101,6 @@ print('  ✅ All good!')
 echo ""
 echo "=== Setup complete ==="
 echo ""
-# 7. Install gui-report-hook plugin
-echo ""
-echo "=== 7. GUI Report Hook plugin ==="
-PLUGIN_SRC="$SKILL_DIR/plugins/gui-report-hook"
-PLUGIN_DST="$HOME/.openclaw/plugins/gui-report-hook"
-if [ -d "$PLUGIN_SRC" ]; then
-    mkdir -p "$HOME/.openclaw/plugins"
-    if [ -L "$PLUGIN_DST" ] || [ -d "$PLUGIN_DST" ]; then
-        rm -rf "$PLUGIN_DST"
-    fi
-    ln -s "$PLUGIN_SRC" "$PLUGIN_DST"
-    echo "  ✅ Plugin symlinked: $PLUGIN_DST → $PLUGIN_SRC"
-else
-    echo "  ⚠️ Plugin source not found: $PLUGIN_SRC"
-fi
-
 echo ""
 echo "=== Setup complete ==="
 echo ""
@@ -124,13 +108,11 @@ echo "OpenClaw config — add to ~/.openclaw/openclaw.json:"
 echo '  {'
 echo '    "skills": { "entries": { "gui-agent": { "enabled": true } } },'
 echo '    "tools": { "exec": { "timeoutSec": 300 } },'
-echo '    "messages": { "queue": { "mode": "interrupt" } },'
-echo '    "plugins": { "load": { "paths": ["~/.openclaw/plugins/gui-report-hook"] }, "entries": { "gui-report-hook": { "enabled": true } } }'
+echo '    "messages": { "queue": { "mode": "interrupt" } }'
 echo '  }'
 echo ""
 echo "  timeoutSec: 300  — GUI operations can take a while, 5 min timeout recommended"
 echo "  queue.mode: interrupt — send any message to abort current agent operation"
-echo "  gui-report-hook — auto-saves task report when agent turn ends"
 echo ""
 echo "Usage:"
 echo "  source ~/gui-actor-env/bin/activate"
