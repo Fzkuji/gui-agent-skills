@@ -43,13 +43,11 @@ _backing_scale_cache = None
 def get_backing_scale():
     """Get Mac display backing scale factor (2.0 for Retina, 1.0 otherwise).
 
-    Uses NSScreen.main.backingScaleFactor via Swift. Result is cached for the
-    lifetime of the process (display config doesn't change mid-run).
-    Non-Mac environments return 1.0.
+    Uses NSScreen.main.backingScaleFactor via Swift.
+    Re-fetched every call to handle runtime resolution changes.
+    Non-Mac environments return 1.0 (cached).
     """
     global _backing_scale_cache
-    if _backing_scale_cache is not None:
-        return _backing_scale_cache
 
     import platform
     if platform.system() != "Darwin":
