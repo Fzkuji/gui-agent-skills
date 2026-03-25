@@ -44,7 +44,29 @@
 - **[2026-03-21]** 🌐 **Cross-platform support** — GPA-GUI-Detector runs on any OS screenshot (Linux VMs, remote servers).
 - **[2026-03-10]** 🚀 **Initial release** — GPA-GUI-Detector + Apple Vision OCR + template matching + per-app visual memory.
 
-## 💬 What It Looks Like
+## 📖 Skills Overview
+
+GUI Agent Skills is organized as a **main skill** (`SKILL.md`) that orchestrates **7 specialized sub-skills**, each handling a distinct aspect of GUI automation:
+
+<div align="center">
+
+### **7 Skills Powering Visual GUI Automation**
+
+| Skill | Description |
+|:------|:------------|
+| 👁️ **[gui-observe](skills/gui-observe/)** | Screenshot capture, OCR text extraction, current state identification. The agent's eyes — always runs first before any action. |
+| 🎓 **[gui-learn](skills/gui-learn/)** | First-contact app learning — detect all UI components via GPA-GUI-Detector, have the VLM label each one, filter duplicates, save to visual memory. |
+| 🖱️ **[gui-act](skills/gui-act/)** | Unified action execution — detect → match → execute → diff → save as one atomic flow. Handles clicks, typing, and all UI interactions. |
+| 💾 **[gui-memory](skills/gui-memory/)** | Visual memory management — split storage (components/states/transitions), browser site isolation, activity-based forgetting, state merging. |
+| 🔄 **[gui-workflow](skills/gui-workflow/)** | State graph navigation and workflow automation — record successful task sequences, replay with tiered verification, BFS path planning. |
+| 📊 **[gui-report](skills/gui-report/)** | Task performance tracking — automatic timing, token usage, success/failure logging for every GUI operation. |
+| ⚙️ **[gui-setup](skills/gui-setup/)** | First-time setup on a new machine — install dependencies, download models, configure accessibility permissions. |
+
+</div>
+
+The main `SKILL.md` acts as the orchestration layer: it defines the safety protocol (INTENT → OBSERVE → VERIFY → ACT → CONFIRM → REPORT), the vision-vs-command boundary, and routes to sub-skills as needed. The agent reads `SKILL.md` first, then loads sub-skills on demand.
+
+## 🔄 How It Works
 
 > **You**: "Send a message to John in WeChat saying see you tomorrow"
 
@@ -162,6 +184,158 @@ CONFIRM  → Screenshot → process list empty → terminated ✅
 
 </details>
 
+## 🏗️ Architecture
+
+<p align="center">
+  <img src="assets/architecture.png" alt="GUI Agent Skills Architecture" width="700" />
+</p>
+
+GUI Agent Skills transforms GUI agents from **stateless** (re-perceive everything every step) to **stateful** (learn, remember, reuse) through three core mechanisms:
+
+### 1. Adaptive Component Memory
+
+> **Problem**: Existing GUI agents treat every screenshot as a fresh perception task — even on interfaces they've seen hundreds of times before.
+
+When a UI element is first detected, GUI Agent Skills creates a **dual representation**: a cropped visual template (for fast matching) and a VLM-assigned semantic label (for reasoning). This pair is stored in per-app memory and reused across all future interactions.
+
+**Detection and annotation:**
+- [GPA-GUI-Detector](https://huggingface.co/Salesforce/GPA-GUI-Detector) (YOLO-based) detects UI components → bounding boxes with coordinates, but *no semantic labels*
+- Apple Vision OCR extracts visible text with precise bounding boxes
+- VLM (Claude, GPT, etc.) assigns semantic labels to each detected element ("Search button", "Settings icon")
+- Result: each component carries both a **visual template** and a **semantic label**
+
+**Template matching and reuse:**
+- On subsequent screenshots, stored templates are matched via normalized cross-correlation
+- Matches are validated against the target application's window bounds (prevents false positives from overlapping apps)
+- Matched components carry their previously-assigned labels — no VLM needed
+
+**Activity-based forgetting:**
+- Each component tracks `consecutive_misses` — incremented when a full detection cycle fails to re-detect it
+- After **15 consecutive misses**, the component is automatically removed (cascades through states and transitions)
+- Keeps memory aligned with the app's current UI as it updates over time
+
+```
+memory/apps/
+├── wechat/
+│   ├── meta.json              # Metadata (detect_count, forget_threshold)
+│   ├── components.json        # Component registry + activity tracking
+│   ├── states.json            # States defined by component sets
+│   ├── transitions.json       # State transitions (dict, deduped)
+│   ├── components/            # Cropped UI element images
+│   │   ├── search_bar.png
+│   │   └── emoji_button.png
+│   └── workflows/             # Saved task sequences
+├── chromium/
+│   ├── components.json        # Browser UI components
+│   └── sites/                 # ⭐ Per-website memory (same structure)
+│       ├── united.com/
+│       ├── delta.com/
+│       └── amazon.com/
+```
+
+### 2. Component-Based State Transition Modeling
+
+> **Problem**: Knowing "what's on screen" isn't enough — the agent also needs to know "what happens when I click X."
+
+The UI is modeled as a **directed graph of states**, where each state is defined by a set of visible components.
+
+**State definition and matching:**
+- A state `s = {c₁, c₂, ..., cₙ}` is the set of components currently on screen
+- States are matched using **Jaccard similarity**: `J(s, s') = |s ∩ s'| / |s ∪ s'|`
+- Match threshold > 0.7 → identifies current state
+- Merge threshold > 0.85 → similar states auto-merge (prevents state explosion)
+
+**Transition recording with pending-confirm validation:**
+- Each click records a transition tuple: `(state_before, component_clicked, state_after)`
+- Transitions are **not** immediately committed — they accumulate as *pending*
+- Only when a task **succeeds** are all pending transitions confirmed and written to the graph
+- On failure → all pending transitions are discarded (prevents exploratory clicks from polluting the graph)
+
+**BFS path planning:**
+- The accumulated transitions form a directed graph `G = (S, E)`
+- Given current state `sᶜ` and target state `sᵗ`, BFS finds the shortest action sequence
+- Enables direct navigation to any previously-visited state without re-exploration
+- No path exists? → falls back to exploration mode with VLM reasoning
+
+```json
+// states.json
+{
+  "state_0": {
+    "defining_components": ["Chat_tab", "Cowork_tab", "Search", "Ideas"],
+    "description": "Main app view"
+  },
+  "state_1": {
+    "defining_components": ["Chat_tab", "Account", "Billing", "Usage"],
+    "description": "Settings page"
+  }
+}
+
+// transitions.json — click Settings in state_0 → arrive at state_1
+{
+  "state_0": { "Settings": "state_1" },
+  "state_1": { "Chat_tab": "state_0" }
+}
+```
+
+### 3. Progressive Visual-to-Semantic Grounding
+
+> **Problem**: VLMs hallucinate coordinates. Every existing GUI agent asks the VLM to estimate pixel positions — leading to misclicks and cascading failures.
+
+GUI Agent Skills **progressively shifts** from image-level to text-level grounding as memory accumulates:
+
+**Phase 1 — Image-level grounding (unfamiliar interfaces):**
+- Detector provides bounding boxes, OCR extracts text
+- VLM receives the full screenshot to understand the scene
+- VLM decides which element to interact with
+- Components are annotated and saved to memory
+- This expensive process happens **only once per component**
+
+**Phase 2 — Text-level grounding (familiar interfaces):**
+- Template matching identifies known components on screen
+- VLM receives a **list of component names** (e.g., `[Search, Settings, Profile, Chat]`) — *not* a screenshot
+- VLM selects a target by name (e.g., "click Settings")
+- System resolves the name to precise coordinates via the stored template
+- **The VLM never estimates pixel positions**
+
+**Why this matters:**
+1. **No coordinate hallucination** — coordinates come exclusively from template matching
+2. **No redundant visual processing** — familiar interfaces are handled in pure text space
+3. **Decreasing cost over time** — as memory grows, more interactions use text-level grounding, reducing both latency (~5.3× faster) and token consumption (~60-100× fewer tokens per step)
+
+**Hierarchical verification** during workflow execution:
+
+| Level | Method | Speed | When |
+|-------|--------|-------|------|
+| **Level 0** | Template match target component | ~0.3s | Default first check |
+| **Level 1** | Full detection + state identification | ~2s | Level 0 fails or ambiguous |
+| **Level 2** | VLM vision fallback | ~5s+ | Level 1 can't determine state |
+
+### Detection Stack
+
+| Detector | Speed | Finds |
+|----------|-------|-------|
+| **[GPA-GUI-Detector](https://huggingface.co/Salesforce/GPA-GUI-Detector)** | ~0.3s | Icons, buttons, input fields |
+| **Apple Vision OCR** | ~1.6s | Text elements (CN + EN) |
+| **Template Match** | ~0.3s | Known components (after first learn) |
+
+## 🔴 Vision vs Command
+
+GUI Agent Skills uses visual detection for **decisions** and the most efficient method for **execution**:
+
+| | Must be vision-based | May use keyboard/CLI |
+|---|---|---|
+| **What** | Determining state, locating elements, verifying results | Shortcuts (Ctrl+L), text input, system commands |
+| **Why** | The agent must SEE what's on screen before acting | Execution can use the fastest available method |
+| **Rule** | **Decision = Visual, Execution = Best Tool** | |
+
+### Three Visual Methods
+
+| Method | Returns | Use for |
+|--------|---------|---------|
+| **OCR** (`detect_text`) | Text + coordinates ✅ | Finding text labels, links, menu items |
+| **GPA-GUI-Detector** (`detect_icons`) | Bounding boxes + coordinates ✅ (no labels) | Finding icons, buttons, non-text elements |
+| **image tool** (LLM vision) | Semantic understanding ⛔ NO coordinates | Understanding the scene, deciding WHAT to click |
+
 ## ⚠️ Prerequisites
 
 GUI Agent Skills is an **OpenClaw skill** — it runs inside [OpenClaw](https://github.com/openclaw/openclaw) and uses OpenClaw's LLM orchestration to reason about UI actions. It is **not** a standalone API, CLI tool, or Python library. You need:
@@ -176,8 +350,8 @@ The LLM (Claude, GPT, etc.) is provided by your OpenClaw configuration — GUI A
 
 **1. Clone & install**
 ```bash
-git clone https://github.com/Fzkuji/GUI Agent Skills.git
-cd GUI Agent Skills
+git clone https://github.com/Fzkuji/GUI-Agent-Skills.git
+cd GUI-Agent-Skills
 bash scripts/setup.sh
 ```
 
@@ -201,239 +375,6 @@ Add to `~/.openclaw/openclaw.json`:
 > 💡 **`queue.mode: "interrupt"`** is recommended — GUI operations take time, and interrupt mode lets you send any message to immediately abort the current agent operation. Without it, your messages queue up and the agent won't see them until it finishes.
 
 Then just chat with your OpenClaw agent — it reads `SKILL.md` and handles everything automatically.
-
-## 🧠 How It Works
-
-<p align="center">
-  <img src="assets/architecture.png" alt="GUI Agent Skills Architecture" width="700" />
-</p>
-
-The architecture has three layers:
-
-- **Orchestration** — `SKILL.md` routes to sub-skills (`gui-observe`, `gui-act`, `gui-learn`, `gui-memory`, `gui-workflow`). A mandatory safety protocol (INTENT → OBSERVE → VERIFY → ACT → CONFIRM → REPORT) is enforced at every step.
-- **Core scripts** — `agent.py` is the unified entry point. `app_memory.py` handles visual memory (learn, detect, match, verify). `ui_detector.py` runs GPA-GUI-Detector (YOLO) + Apple Vision OCR.
-- **Memory** — Split storage: `components.json`, `states.json`, `transitions.json` per app/site. Components auto-forget after consecutive misses. States defined by component sets, auto-merged by Jaccard similarity.
-
-### Detection Stack
-
-| Detector | Speed | Finds |
-|----------|-------|-------|
-| **[GPA-GUI-Detector](https://huggingface.co/Salesforce/GPA-GUI-Detector)** | ~0.3s | Icons, buttons, input fields |
-| **Apple Vision OCR** | ~1.6s | Text elements (CN + EN) |
-| **Template Match** | ~0.3s | Known components (after first learn) |
-
-## 📁 App Visual Memory
-
-Each app gets its own visual memory with a **click-graph state model**.
-Browsers are special — they host many websites, so each site gets its own **nested memory** with the same structure as any app.
-
-```
-memory/apps/
-├── wechat/
-│   ├── meta.json                 # Metadata (detect_count, forget_threshold)
-│   ├── components.json           # Component registry + activity tracking
-│   ├── states.json               # States defined by component sets
-│   ├── transitions.json          # State transitions (dict, deduped)
-│   ├── components/               # Cropped UI element images
-│   │   ├── search_bar.png
-│   │   ├── emoji_button.png
-│   │   └── ...
-│   ├── workflows/                # Saved task sequences
-│   │   └── send_message.json
-│   └── pages/
-│       └── main_annotated.jpg
-├── cleanmymac_x/
-│   ├── meta.json
-│   ├── components.json
-│   ├── states.json
-│   ├── transitions.json
-│   ├── components/
-│   ├── workflows/
-│   │   └── smart_scan_cleanup.json
-│   └── pages/
-├── claude/
-│   ├── meta.json
-│   ├── components.json
-│   ├── states.json
-│   ├── transitions.json
-│   ├── components/
-│   ├── workflows/
-│   │   └── check_usage.json
-│   └── pages/
-└── chromium/
-    ├── meta.json                 # Browser-level metadata
-    ├── components.json           # Browser UI components (toolbar, settings)
-    ├── states.json
-    ├── transitions.json
-    ├── components/               # Browser UI element templates
-    ├── pages/
-    └── sites/                    # ⭐ Per-website memory (same structure as any app)
-        ├── united.com/
-        │   ├── meta.json
-        │   ├── components.json   # Site UI: nav bar, forms, links
-        │   ├── states.json
-        │   ├── transitions.json
-        │   ├── components/       # Cropped site-specific UI elements
-        │   └── pages/            # Page screenshots
-        ├── delta.com/
-        │   ├── meta.json
-        │   ├── components.json
-        │   ├── states.json
-        │   ├── transitions.json
-        │   ├── components/
-        │   └── pages/
-        └── amazon.com/
-            ├── meta.json
-            ├── components.json
-            ├── states.json
-            ├── transitions.json
-            ├── components/
-            └── pages/
-```
-
-### Click Graph
-
-The UI is modeled as a **graph of states**. Each state is defined by a `defining_components` set — the collection of components detected on screen. States are matched using **Jaccard similarity** between the current screen's components and each saved state's defining set.
-
-**components.json structure:**
-```json
-{
-  "Search": {
-    "type": "icon",
-    "rel_x": 115, "rel_y": 143,
-    "icon_file": "components/Search.png",
-    "last_seen": "2026-03-24T01:30:00",
-    "seen_count": 12,
-    "consecutive_misses": 0
-  },
-  "Settings": {
-    "type": "icon",
-    "rel_x": 63, "rel_y": 523,
-    "icon_file": "components/Settings.png",
-    "last_seen": "2026-03-24T01:30:00",
-    "seen_count": 8,
-    "consecutive_misses": 2
-  }
-}
-```
-
-**states.json structure:**
-```json
-{
-  "state_0": {
-    "defining_components": ["Chat_tab", "Cowork_tab", "Code_tab", "Search", "Ideas"],
-    "description": "Main app view when first opened"
-  },
-  "state_1": {
-    "defining_components": ["Chat_tab", "Account", "Billing", "Usage", "General"],
-    "description": "Settings page"
-  },
-  "state_2": {
-    "defining_components": ["Chat_tab", "Account", "Billing", "Usage", "Developer"],
-    "description": "Settings > Usage tab"
-  }
-}
-```
-
-**How it works:**
-1. **State = component set** — each state is defined by which components are present (its `defining_components`)
-2. **Jaccard matching** — current screen's detected components are compared against each state: `|A ∩ B| / |A ∪ B|`
-3. **Match threshold > 0.7** — identifies the current state
-4. **Merge threshold > 0.85** — if a new state is too similar to an existing one, they merge automatically
-5. **Components belong to states** = a component can appear in multiple states (e.g., `Chat_tab` is in `state_0`, `state_1`, `state_2`)
-6. **Matching is state-specific** = only match components that belong to the identified state
-
-**Component forgetting:**
-- Each component tracks `last_seen`, `seen_count`, and `consecutive_misses`
-- When a component is not detected for **15 consecutive detect_all runs**, it is automatically deleted
-- This keeps memory clean as apps update their UI over time
-
-**Why this works:**
-- No need to predefine "pages" or "regions" — states are discovered through interaction
-- State identification is fast (Jaccard on component sets, no vision model needed)
-- Similar states auto-merge, preventing state explosion
-- Stale components auto-forget, keeping memory lean
-- Handles overlays, popups, nested navigation naturally
-- Scales to complex apps with many UI states
-
-## 🔄 Workflow Memory
-
-Completed tasks are saved as reusable workflows. Next time a similar request comes in, the agent matches it semantically.
-
-```
-memory/apps/cleanmymac_x/workflows/smart_scan_cleanup.json
-memory/apps/claude/workflows/check_usage.json
-```
-
-**How matching works:**
-1. User says "帮我清理一下电脑" / "scan my Mac" / "run CleanMyMac"
-2. Agent lists saved workflows for the target app
-3. **LLM semantic matching** (not string matching) — the agent IS the LLM
-4. Match found → load workflow steps, observe current state, resume from correct step
-5. No match → operate normally, save new workflow after success
-
-**Tiered verification (Workflow v2):**
-
-Each workflow step is verified using a tiered approach — fast checks first, expensive ones only if needed:
-
-| Level | Method | Speed | When |
-|-------|--------|-------|------|
-| **Level 0** | `quick_template_check` — template match target component | ~0.3s | Default first check |
-| **Level 1** | `detect_all` + `identify_current_state` — full detection | ~2s | Level 0 fails or ambiguous |
-| **Level 2** | LLM vision fallback | ~5s+ | Level 1 can't determine state |
-
-**Execution modes:**
-- **Auto mode** — follows saved workflow steps, verifying each with tiered checks
-- **Explore mode** — no saved workflow; agent discovers steps interactively, saves on success
-
-**`execute_workflow()` returns:**
-- `success` — all steps completed and verified
-- `fallback` — workflow diverged, fell back to explore mode
-- `error` — unrecoverable failure
-
-**Example workflow** (`smart_scan_cleanup.json`):
-```json
-{
-  "steps": [
-    {"action": "open", "target": "CleanMyMac X"},
-    {"action": "observe", "note": "check current state"},
-    {"action": "click", "target": "Scan"},
-    {"action": "wait_for", "target": "Run", "timeout": 120},
-    {"action": "click", "target": "Run"},
-    {"action": "wait_for", "target": "Ignore", "timeout": 30},
-    {"action": "click", "target": "Ignore", "condition": "only if quit dialog appeared"}
-  ]
-}
-```
-
-**`wait_for` — async UI polling:**
-```bash
-python3 agent.py wait_for --app "CleanMyMac X" --component Run
-# ⏳ Waiting for 'Run' (timeout=120s, poll=10s)...
-# ✅ Found 'Run' at (855,802) conf=0.98 after 45.2s (5 polls)
-```
-- Template match every 10s (~0.3s per check)
-- On timeout → saves screenshot for inspection, **never blind-clicks**
-
-## 🔴 Vision vs Command
-
-GUI Agent Skills uses visual detection for **decisions** and the most efficient method for **execution**:
-
-| | Must be vision-based | May use keyboard/CLI |
-|---|---|---|
-| **What** | Determining state, locating elements, verifying results | Shortcuts (Ctrl+L), text input, system commands |
-| **Why** | The agent must SEE what's on screen before acting | Execution can use the fastest available method |
-| **Rule** | **Decision = Visual, Execution = Best Tool** | |
-
-### Three Visual Methods
-
-| Method | Returns | Use for |
-|--------|---------|---------|
-| **OCR** (`detect_text`) | Text + coordinates ✅ | Finding text labels, links, menu items |
-| **GPA-GUI-Detector** (`detect_icons`) | Bounding boxes + coordinates ✅ (no labels) | Finding icons, buttons, non-text elements |
-| **image tool** (LLM vision) | Semantic understanding ⛔ NO coordinates | Understanding the scene, deciding WHAT to click |
-
-**Progressive workflow**: First visit → all three methods. Familiar pages → OCR + detector only (skip image tool, save tokens).
 
 ## ⚠️ Safety & Protocol
 
@@ -460,11 +401,11 @@ Every action follows a unified detect-match-execute-save protocol:
 ## 🗂️ Project Structure
 
 ```
-GUI Agent Skills/
-├── SKILL.md                   # 🧠 Main skill — agent reads this first
-│                              #    Defines: Vision vs Command boundary,
-│                              #    three visual methods, execution flow
-├── skills/                    # 📖 Sub-skills
+GUI-Agent-Skills/
+├── SKILL.md                   # 🧠 Main skill — orchestration layer
+│                              #    Safety protocol, vision-vs-command boundary,
+│                              #    routes to sub-skills as needed
+├── skills/                    # 📖 Sub-skills (7 specialized modules)
 │   ├── gui-observe/SKILL.md   #   👁️ Screenshot, OCR, identify state
 │   ├── gui-learn/SKILL.md     #   🎓 Detect components, label, filter, save
 │   ├── gui-act/SKILL.md       #   🖱️ Unified: detect→match→execute→diff→save
@@ -528,7 +469,7 @@ If you find GUI Agent Skills useful in your research, please cite:
   title        = {GUI Agent Skills: Visual Memory-Driven GUI Automation for macOS},
   year         = {2026},
   publisher    = {GitHub},
-  url          = {https://github.com/Fzkuji/GUI Agent Skills},
+  url          = {https://github.com/Fzkuji/GUI-Agent-Skills},
 }
 ```
 
@@ -537,11 +478,11 @@ If you find GUI Agent Skills useful in your research, please cite:
 ## ⭐ Star History
 
 <p align="center">
-  <a href="https://star-history.com/#Fzkuji/GUI Agent Skills&Date">
+  <a href="https://star-history.com/#Fzkuji/GUI-Agent-Skills&Date">
     <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Fzkuji/GUI Agent Skills&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Fzkuji/GUI Agent Skills&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Fzkuji/GUI Agent Skills&type=Date" width="600" />
+      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Fzkuji/GUI-Agent-Skills&type=Date&theme=dark" />
+      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Fzkuji/GUI-Agent-Skills&type=Date" />
+      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Fzkuji/GUI-Agent-Skills&type=Date" width="600" />
     </picture>
   </a>
 </p>
