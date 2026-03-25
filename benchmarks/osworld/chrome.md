@@ -1,6 +1,6 @@
 # OSWorld Chrome Domain — GUIClaw Results
 
-> 46 tasks tested | **45.0 / 46** (97.8%) | 2026-03-22 ~ 2026-03-23
+> 46 tasks tested | **43 / 46** (93.5%) | 2026-03-22 ~ 2026-03-23
 
 ## Summary
 
@@ -8,10 +8,10 @@
 |--------|-------|
 | Total tasks | 46 |
 | ✅ First-try pass | 41 |
-| ⚠️ Retry pass (×0.5) | 2 |
+| ⚠️ Retry pass (counted as 0) | 2 |
 | ⚠️ Env change (×1.0) | 2 |
 | ❌ Failed | 1 |
-| **Score** | **45.0 / 46** (97.8%) |
+| **Score** | **43 / 46** (93.5%) |
 
 **Test environment:** Ubuntu ARM VM (VMware Fusion), Chromium 138, 1920×1080
 

@@ -39,7 +39,7 @@
 
 - **[2026-03-24]** 📐 **Coordinate system refactoring** — Dual-space model (detection space vs click space) with dynamic scale computed per `detect_all()` call via `refresh_screen_info()`. No more hardcoded Retina ÷2.
 - **[2026-03-24]** 🧠 **Smart workflow navigation** — Target state verification with tiered fallback (template match → full detection → LLM). Auto performance tracking via `detect_all`.
-- **[2026-03-23]** 🏆 **OSWorld benchmark: 97.8%** — 45.0/46 Chrome tasks passed. [Results →](benchmarks/osworld/)
+- **[2026-03-23]** 🏆 **OSWorld benchmark: 93.5%** — 43/46 Chrome tasks passed. [Results →](benchmarks/osworld/)
 - **[2026-03-23]** 🔄 **Memory overhaul** — Split storage, automatic component forgetting (15 consecutive misses → removed), state merging by Jaccard similarity.
 - **[2026-03-22]** 🔍 **Unified detection pipeline** — `detect_all()` as single entry point; atomic detect → match → execute → verify loop.
 - **[2026-03-21]** 🌐 **Cross-platform support** — GPA-GUI-Detector runs on any OS screenshot (Linux VMs, remote servers).
