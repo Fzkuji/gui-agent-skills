@@ -16,12 +16,13 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/Platform-macOS_Apple_Silicon-black?logo=apple" />
+    <img src="https://img.shields.io/badge/Platform-macOS_%7C_Linux-black?logo=apple" />
     <img src="https://img.shields.io/badge/Runtime-OpenClaw-orange" />
     <img src="https://img.shields.io/badge/Detection-GPA--GUI--Detector-green" />
-    <img src="https://img.shields.io/badge/OCR-Apple_Vision-blue" />
+    <img src="https://img.shields.io/badge/OCR-Apple_Vision_%7C_EasyOCR-blue" />
     <img src="https://img.shields.io/badge/License-MIT-yellow" />
     <img src="https://img.shields.io/badge/OSWorld_Chrome-93.5%25-brightgreen" />
+    <img src="https://img.shields.io/badge/OSWorld_Multi--Apps-54.3%25-green" />
   </p>
 </div>
 
@@ -36,6 +37,7 @@
 
 ## 🔥 News
 
+- **[2026-03-29]** 🎬 **v0.3 — Unified Actions & Cross-Platform GUI** — `gui_action.py` as single entry point for all GUI operations. Platform-specific backends (`mac_local.py`, `http_remote.py`) auto-selected via `--remote`. `activate.py` for platform detection. OSWorld Multi-Apps: **54.3%** (44/81). [Results →](benchmarks/osworld/multi_apps.md)
 - **[2026-03-24]** 📐 **Coordinate system refactoring** — Dual-space model (detection space vs click space) with dynamic scale computed per `detect_all()` call via `refresh_screen_info()`. No more hardcoded Retina ÷2.
 - **[2026-03-24]** 🧠 **Smart workflow navigation** — Target state verification with tiered fallback (template match → full detection → LLM). Auto performance tracking via `detect_all`.
 - **[2026-03-23]** 🏆 **OSWorld benchmark (Chrome)** — **one attempt: 93.5%** (43/46), **up to two attempts: 97.8%** (45/46). [Results →](benchmarks/osworld/)
@@ -189,7 +191,7 @@ CONFIRM  → Screenshot → process list empty → terminated ✅
 GUI Agent Skills is an **OpenClaw skill** — it runs inside [OpenClaw](https://github.com/openclaw/openclaw) and uses OpenClaw's LLM orchestration to reason about UI actions. It is **not** a standalone API, CLI tool, or Python library. You need:
 
 1. **[OpenClaw](https://github.com/openclaw/openclaw)** installed and running
-2. **macOS with Apple Silicon** *(recommended)* — enables Apple Vision OCR for high-accuracy text detection. GPA-GUI-Detector and core functionality work on any platform.
+2. **macOS with Apple Silicon** *(recommended)* — enables Apple Vision OCR for high-accuracy text detection. Also supports **Linux** (local or remote VMs via HTTP API, e.g., OSWorld).
 3. **Accessibility permissions** granted to OpenClaw/Terminal (macOS only)
 
 The LLM (Claude, GPT, etc.) is provided by your OpenClaw configuration — GUI Agent Skills itself does not call any external APIs directly.
@@ -412,10 +414,14 @@ GUI-Agency-Pack/
 │   └── gui-setup/SKILL.md     #   ⚙️ First-time setup on a new machine
 ├── scripts/
 │   ├── setup.sh               # 🔧 One-command setup
-│   ├── agent.py               # 🎯 Unified entry point (all GUI ops go through here)
+│   ├── activate.py            # 🌐 Platform detection — detects OS, prints platform info
+│   ├── gui_action.py          # 🎯 Unified GUI action interface (click/type/key/screenshot)
+│   │                          #    Auto-selects backend: mac_local or http_remote via --remote
+│   ├── backends/              # 🔌 Platform-specific backends
+│   │   ├── mac_local.py       #     macOS: cliclick + AppleScript
+│   │   └── http_remote.py     #     Remote VMs: pyautogui via HTTP API (e.g., OSWorld)
 │   ├── ui_detector.py         # 🔍 Detection engine (GPA-GUI-Detector + OCR + Swift window info)
 │   ├── app_memory.py          # 🧠 Visual memory (learn/detect/click/verify/learn_site)
-│   ├── gui_agent.py           # 🖱️ Legacy task executor
 │   └── template_match.py      # 🎯 Template matching utilities
 ├── memory/                    # 🔒 Visual memory (gitignored but ESSENTIAL)
 │   ├── apps/<appname>/        #   Per-app memory:
@@ -426,9 +432,16 @@ GUI-Agency-Pack/
 │   │   ├── components/        #     Template images
 │   │   ├── pages/             #     Page screenshots
 │   │   └── sites/<domain>/    #   Per-website memory (browsers only, same structure)
+├── platforms/                  # 🌐 Platform-specific guides & detection
+│   ├── detect.py              #     Platform auto-detection script
+│   ├── macos.md               #     macOS-specific tips & workarounds
+│   ├── linux.md               #     Linux-specific tips & workarounds
+│   └── DESIGN.md              #     Cross-platform architecture design
 ├── benchmarks/osworld/        # 📈 OSWorld benchmark results
 ├── assets/                    # 🎨 Architecture diagrams, banners
-├── actions/_actions.yaml      # 📋 Atomic operation definitions
+├── actions/
+│   ├── _actions_macos.yaml    # 📋 macOS-specific action definitions
+│   └── _actions_linux.yaml    # 📋 Linux-specific action definitions
 ├── docs/
 │   ├── core.md                # 📚 Lessons learned & hard-won rules
 │   └── README_CN.md           # 🇨🇳 中文文档
@@ -438,8 +451,9 @@ GUI-Agency-Pack/
 
 ## 📦 Requirements
 
-- **macOS** with Apple Silicon (M1/M2/M3/M4)
-- **Accessibility permissions**: System Settings → Privacy → Accessibility
+- **macOS** with Apple Silicon (M1/M2/M3/M4) — for local GUI automation
+- **Linux** (Ubuntu 22.04+) — for remote VM automation via HTTP API
+- **Accessibility permissions** (macOS only): System Settings → Privacy → Accessibility
 - Everything else installed by `bash scripts/setup.sh`
 
 ## 🤝 Ecosystem

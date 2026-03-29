@@ -81,13 +81,14 @@ def execute(action, args, remote=None):
 
 ### 内部映射
 
-| 操作 | macOS 本机 | Linux 本机 | HTTP 远程 | SSH 远程 |
-|------|-----------|-----------|----------|---------|
-| click | pynput click_at | pyautogui.click | POST→pyautogui.click | ssh→pyautogui.click |
-| type | pynput paste_text | xdotool type | POST→xdotool type | ssh→xdotool type |
-| screenshot | screencapture | scrot/pyautogui | GET /screenshot | ssh+scrot+scp |
-| focus | osascript activate | wmctrl -a | POST→wmctrl -a | ssh→wmctrl -a |
-| shortcut | pynput key_combo | xdotool key | POST→xdotool key | ssh→xdotool key |
+| 操作 | macOS 本机 (mac_local.py) | HTTP 远程 (http_remote.py) |
+|------|--------------------------|--------------------------|
+| click | cliclick c:X,Y | POST→pyautogui.click(X,Y) |
+| type | cliclick kp:text | POST→pyautogui.typewrite(text) |
+| screenshot | screencapture | GET /screenshot |
+| focus | osascript activate | POST→wmctrl -a |
+| shortcut | cliclick kd/ku | POST→pyautogui.hotkey() |
+| key | cliclick kp | POST→pyautogui.press() |
 
 ## 模型的视角
 

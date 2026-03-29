@@ -16,12 +16,13 @@
   </p>
 
   <p>
-    <img src="https://img.shields.io/badge/平台-macOS_Apple_Silicon-black?logo=apple" />
+    <img src="https://img.shields.io/badge/平台-macOS_%7C_Linux-black?logo=apple" />
     <img src="https://img.shields.io/badge/运行时-OpenClaw-orange" />
     <img src="https://img.shields.io/badge/检测-GPA--GUI--Detector-green" />
-    <img src="https://img.shields.io/badge/OCR-Apple_Vision-blue" />
+    <img src="https://img.shields.io/badge/OCR-Apple_Vision_%7C_EasyOCR-blue" />
     <img src="https://img.shields.io/badge/License-MIT-yellow" />
     <img src="https://img.shields.io/badge/OSWorld_Chrome-93.5%25-brightgreen" />
+    <img src="https://img.shields.io/badge/OSWorld_Multi--Apps-54.3%25-green" />
   </p>
 </div>
 
@@ -36,6 +37,7 @@
 
 ## 🔥 更新日志
 
+- **[2026-03-29]** 🎬 **v0.3 — 统一操作接口 & 跨平台 GUI** — `gui_action.py` 作为所有 GUI 操作的统一入口。平台后端（`mac_local.py`、`http_remote.py`）通过 `--remote` 自动切换。`activate.py` 负责平台检测。OSWorld Multi-Apps：**54.3%**（44/81）。[查看结果 →](../benchmarks/osworld/multi_apps.md)
 - **[2026-03-24]** 📐 **坐标系统重构** — 双空间模型（检测空间 vs 点击空间），每次 `detect_all()` 调用时通过 `refresh_screen_info()` 动态计算 scale。不再硬编码 Retina ÷2。
 - **[2026-03-24]** 🧠 **智能工作流导航** — 目标状态分层验证（模板匹配 → 全量检测 → LLM 回退）。通过 `detect_all` 自动跟踪性能。
 - **[2026-03-23]** 🏆 **OSWorld 基准测试（Chrome）** — **单轮尝试：93.5%**（43/46），**最多两轮尝试：97.8%**（45/46）。[查看结果 →](../benchmarks/osworld/)
@@ -189,7 +191,7 @@ CONFIRM  → 截屏 → 进程列表为空 → 已终止 ✅
 GUI Agent Skills 是一个 **OpenClaw 技能** — 它运行在 [OpenClaw](https://github.com/openclaw/openclaw) 内部，利用 OpenClaw 的 LLM 编排来推理 UI 操作。它**不是**独立的 API、命令行工具或 Python 库。你需要：
 
 1. **[OpenClaw](https://github.com/openclaw/openclaw)** 已安装并运行
-2. **macOS + Apple Silicon**（*推荐*）— 启用 Apple Vision OCR 以获得高精度文字检测。GPA-GUI-Detector 和核心功能在任何平台均可运行。
+2. **macOS + Apple Silicon**（*推荐*）— 启用 Apple Vision OCR 以获得高精度文字检测。同时支持 **Linux**（本地或通过 HTTP API 远程控制 VM，如 OSWorld）。
 3. **辅助功能权限** 已授予 OpenClaw / Terminal（仅 macOS）
 
 LLM（Claude、GPT 等）由 OpenClaw 配置提供 — GUI Agent Skills 本身不直接调用任何外部 API。
@@ -411,10 +413,14 @@ GUI-Agent-Skills/
 │   └── gui-setup/SKILL.md     #   ⚙️ 新机器首次设置
 ├── scripts/
 │   ├── setup.sh               # 🔧 一键安装
-│   ├── agent.py               # 🎯 统一入口（所有 GUI 操作经由此处）
+│   ├── activate.py            # 🌐 平台检测 — 检测 OS 并输出平台信息
+│   ├── gui_action.py          # 🎯 统一 GUI 操作接口（click/type/key/screenshot）
+│   │                          #    通过 --remote 自动选择后端：mac_local 或 http_remote
+│   ├── backends/              # 🔌 平台后端
+│   │   ├── mac_local.py       #     macOS：cliclick + AppleScript
+│   │   └── http_remote.py     #     远程 VM：通过 HTTP API 调用 pyautogui（如 OSWorld）
 │   ├── ui_detector.py         # 🔍 检测引擎（GPA-GUI-Detector + OCR + Swift 窗口信息）
 │   ├── app_memory.py          # 🧠 视觉记忆（学习/检测/点击/验证/learn_site）
-│   ├── gui_agent.py           # 🖱️ 旧版任务执行器
 │   └── template_match.py      # 🎯 模板匹配工具
 ├── memory/                    # 🔒 视觉记忆（gitignored 但至关重要）
 │   ├── apps/<appname>/        #   每个应用的记忆：
@@ -425,9 +431,16 @@ GUI-Agent-Skills/
 │   │   ├── components/        #     模板图片
 │   │   ├── pages/             #     页面截图
 │   │   └── sites/<domain>/    #   每个网站的记忆（浏览器专用，相同结构）
+├── platforms/                  # 🌐 平台指南与检测
+│   ├── detect.py              #     平台自动检测脚本
+│   ├── macos.md               #     macOS 特定技巧与注意事项
+│   ├── linux.md               #     Linux 特定技巧与注意事项
+│   └── DESIGN.md              #     跨平台架构设计
 ├── benchmarks/osworld/        # 📈 OSWorld 基准测试结果
 ├── assets/                    # 🎨 架构图、banner
-├── actions/_actions.yaml      # 📋 原子操作定义
+├── actions/
+│   ├── _actions_macos.yaml    # 📋 macOS 操作定义
+│   └── _actions_linux.yaml    # 📋 Linux 操作定义
 ├── docs/
 │   ├── core.md                # 📚 经验教训与硬规则
 │   └── README_CN.md           # 🇨🇳 中文文档
@@ -437,8 +450,9 @@ GUI-Agent-Skills/
 
 ## 📦 环境要求
 
-- **macOS** + Apple Silicon（M1/M2/M3/M4）
-- **辅助功能权限**：系统设置 → 隐私与安全性 → 辅助功能
+- **macOS** + Apple Silicon（M1/M2/M3/M4）— 本地 GUI 自动化
+- **Linux**（Ubuntu 22.04+）— 通过 HTTP API 远程控制 VM
+- **辅助功能权限**（仅 macOS）：系统设置 → 隐私与安全性 → 辅助功能
 - 其余依赖由 `bash scripts/setup.sh` 自动安装
 
 ## 🤝 生态系统
