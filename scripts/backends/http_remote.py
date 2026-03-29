@@ -38,9 +38,14 @@ def right_click(x, y, remote_url=None):
 
 
 def type_text(text, remote_url=None):
-    # Use xdotool for reliable text input (handles special chars)
-    escaped = text.replace("'", "'\\''")
-    _exec(remote_url, ["xdotool", "type", "--delay", "10", text])
+    # Use pyautogui.typewrite() — the same method OSWorld uses internally.
+    # Available on all OSWorld VMs without extra installs.
+    # typewrite handles uppercase via shift automatically.
+    result = _exec(remote_url, ["python3", "-c",
+        f"import pyautogui; pyautogui.typewrite({repr(text)}, interval=0.02)"])
+    if result and result.get("status") == "error":
+        print(f"ERROR: type_text failed: {result.get('message', 'unknown')}")
+        return
     print(f"typed: {text[:50]}{'...' if len(text) > 50 else ''}")
 
 
