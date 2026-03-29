@@ -1,46 +1,56 @@
 # OSWorld Multi-Apps Domain — GUI Agent Skills Results
 
-> 101 tasks total | **37 passed / 41 attempted** | 60 remaining | 2026-03-29
+> 101 tasks total | **37 passed / 41 officially evaluated** | 13 Round 1 unverified | 46 not attempted | 2026-03-29
 
 ## Summary
 
 | Metric | Value |
 |--------|-------|
 | Total tasks | 101 |
-| ✅ Pass (score > 0) | 37 |
-| ❌ Fail (score = 0) | 3 |
+| ✅ Pass (official eval, score > 0) | 37 |
+| ❌ Fail (official eval, score = 0) | 3 |
 | ⚠️ Evaluator/setup error | 1 |
-| 🔲 Not attempted | 60 |
-| **Pass rate (attempted)** | **37/41** (90.2%) |
+| 🟡 Round 1 CLI pass (no official eval) | 13 |
+| 🟠 Round 1 CLI fail | 1 |
+| 🔲 Not attempted | 46 |
+| **Official pass rate** | **37/41** (90.2%) |
 
 **Test environment:** Ubuntu ARM VM (VMware Fusion), 1920×1080
 **Evaluation:** Official OSWorld evaluator (`DesktopEnv.evaluate()`)
 **Agent approach:** Hybrid CLI + GUI (pyautogui on VM, vision analysis on Mac)
 
+**Legend:**
+- ✅ Pass — officially evaluated, score > 0
+- ❌ Fail — officially evaluated, score = 0
+- ⚠️ Error — evaluator crash or setup failure
+- 🟡 Round 1 — solved via CLI in Round 1, but not re-run with official evaluator
+- 🟠 Round 1 Fail — attempted in Round 1 but failed
+- 🔲 Not attempted — never tried
+
 ## Detailed Results
 
 | # | Task ID | Instruction | Score | Status | Notes |
 |---|---------|-------------|-------|--------|-------|
-| 1 | `2b9493d7` | Hey, my LibreOffice Writer seems to have frozen and I can't get it to close norm | — | 🔲 | Not attempted |
-| 2 | `2c9fc0de` | Could you help me push the changes from commandline in current project to origin | — | 🔲 | Not attempted |
-| 3 | `2fe4b718` | Could you help me create an Animated GIF src_clip.gif from a video file using VL | — | 🔲 | Not attempted |
-| 4 | `3680a5ee` | I have file1.xlsx and file2.ods on my Desktop, each containing a single column.  | — | 🔲 | Not attempted |
+| 1 | `2b9493d7` | Hey, my LibreOffice Writer seems to have frozen and I can't get it to close norm | — | 🟡 | Round 1 CLI: killall soffice.bin (no official eval) |
+| 2 | `2c9fc0de` | Could you help me push the changes from commandline in current project to origin | — | 🟡 | Round 1 CLI: git init + add/commit/push (no official eval) |
+| 3 | `2fe4b718` | Could you help me create an Animated GIF src_clip.gif from a video file using VL | — | 🟡 | Round 1 CLI: ffmpeg → GIF (190KB, 50 frames) (no official eval) |
+| 4 | `3680a5ee` | I have file1.xlsx and file2.ods on my Desktop, each containing a single column.  | — | 🟡 | Round 1 CLI: python3 csv merge (no official eval) |
 | 5 | `46407397` | Help me export charts, graph or other images from docx files received in email " | — | 🔲 | Not attempted |
 | 6 | `4e9f0faf` | Could you help me extract data in the table from a new invoice uploaded to my Go | — | 🔲 | Not attempted |
-| 7 | `510f64c8` | Could you start VS Code in folder ~/Desktop/project from the terminal? | — | 🔲 | Not attempted |
-| 8 | `51f5801c` | I've been working on this presentation in LibreOffice Impress and I've added a b | — | 🔲 | Not attempted |
-| 9 | `58565672` | Can you assist me by opening the first link in the latest email in Bills folder  | — | 🔲 | Not attempted |
+| 7 | `510f64c8` | Could you start VS Code in folder ~/Desktop/project from the terminal? | — | 🟡 | Round 1 CLI: code ~/Desktop/project (no official eval) |
+| 8 | `51f5801c` | I've been working on this presentation in LibreOffice Impress and I've added a b | — | 🟡 | Round 1 CLI: python-pptx + python-docx (no official eval) |
+| 9 | `58565672` | Can you assist me by opening the first link in the latest email in Bills folder  | — | 🟡 | Round 1 CLI: mailbox + regex + chromium (no official eval) |
 | 10 | `78aed49a` | Could you help me save all attachments of the oldest email in Bills local folder | — | 🔲 | Not attempted |
 | 11 | `897e3b53` | I have a LibreOffice Writer file form.docx on the desktop. Help me convert it to | — | 🔲 | Not attempted |
-| 12 | `937087b6` | I am currently using a ubuntu system. Could you help me set the default video pl | — | 🔲 | Not attempted |
+| 12 | `937087b6` | I am currently using a ubuntu system. Could you help me set the default video pl | — | 🟡 | Round 1 CLI: xdg-mime default vlc.desktop (no official eval) |
 | 13 | `a0b9dc9c` | Please help me backup my emails in "Bills" folder in Thunderbird and store the . | — | 🔲 | Not attempted |
 | 14 | `b52b40a5` | Could you help me merge all PDF files in the "Paper Recommendation" email attach | — | 🔲 | Not attempted |
-| 15 | `c867c42d` | Please assist me in exporting my contacts of Personal Address Book from Thunderb | — | 🔲 | Not attempted |
-| 16 | `d9b7c649` | Help me extract the latest 5 emails in daily folder from Thunderbird, from the e | — | 🔲 | Not attempted |
-| 17 | `e135df7c` | Please convert a .xlsx file opened in LibreOffice Calc to a .html file and view  | — | 🔲 | Not attempted |
-| 18 | `ee9a3c83` | Could you help me convert the opened ods file in the desktop to csv file with th | — | 🔲 | Not attempted |
-| 19 | `f7dfbef3` | Could you convert all `.doc` files in current directory to PDF all at once in th | — | 🔲 | Not attempted |
-| 20 | `f8cfa149` | Could you help me copy the data in Cell B6 in this Libreoffice Calc file and sea | — | 🔲 | Not attempted |
+| 15 | `c867c42d` | Please assist me in exporting my contacts of Personal Address Book from Thunderb | — | 🟠 | Round 1 FAIL: Thunderbird abook.sqlite error |
+| 16 | `d9b7c649` | Help me extract the latest 5 emails in daily folder from Thunderbird, from the e | — | 🟡 | Round 1 CLI: mailbox + csv + LO headless (no official eval) |
+| 17 | `e135df7c` | Please convert a .xlsx file opened in LibreOffice Calc to a .html file and view  | — | 🟡 | Round 1 CLI: LO headless --convert-to html (no official eval) |
+| 18 | `ee9a3c83` | Could you help me convert the opened ods file in the desktop to csv file with th | — | 🟡 | Round 1 CLI: LO headless --convert-to csv (no official eval) |
+| 19 | `f7dfbef3` | Could you convert all `.doc` files in current directory to PDF all at once in th | — | 🟡 | Round 1 CLI: LO headless --convert-to pdf *.doc (no official eval) |
+| 20 | `f8cfa149` | Could you help me copy the data in Cell B6 in this Libreoffice Calc file and sea | — | 🟡 | Round 1 CLI: openpyxl + chromium (no official eval) |
 | 21 | `6d72aad6` | Convert an OpenOffice/LibreOffice Impress presentation into a video using only L | 1.0 | ✅ | Infeasible → FAIL action |
 | 22 | `f918266a` | Please complete the code and retrieve the output from the Python script 'calcula | 1.0 | ✅ | Fixed insertion sort TODO |
 | 23 | `da52d699` | Examine the spreadsheet on the desktop, which contains a record of books read in | 1.0 | ✅ | words/day calc → "Out of the Silent Planet" |
