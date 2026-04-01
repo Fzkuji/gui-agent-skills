@@ -7,11 +7,11 @@
 | Metric | Value |
 |--------|-------|
 | Total tasks | 101 |
-| ✅ Verified (official eval) | 15 |
-| ⏳ Pending eval | 48 |
+| ✅ Verified (official eval) | 16 |
+| ⏳ Pending eval | 47 |
 | ❌ Blocked | 20 |
 | 🔲 Not yet attempted | 18 |
-| **Verified score** | **9.843/15 = 65.6%** |
+| **Verified score** | **10.843/16 = 67.8%** |
 
 > Scores are ONLY from OSWorld official evaluator (`desktop_env/evaluators/`).
 
@@ -40,7 +40,7 @@
 | 19 | `f7dfbef3` | Convert .doc files to PDF | **0.998** | libreoffice --headless --convert-to pdf *.doc |
 | 20 | `f8cfa149` | Copy cell B6, search in Chrome | **0.0** | Google搜索URL正确但evaluator Playwright导航可能超时 |
 | 21 | `6d72aad6` | Convert Impress to video | **1.0** | infeasible任务，正确回复FAIL |
-| 22 | `f918266a` | Complete Python calculator code | | |
+| 22 | `f918266a` | Complete Python calculator code | **1.0** | 补充insertionSort缺失行+运行保存log.txt |
 | 23 | `da52d699` | Find slowest reading pace book | | |
 | 24 | `bc2b57f3` | Reorder spreadsheet sheets | | |
 | 25 | `74d5859f` | Web extension project setup | | |
