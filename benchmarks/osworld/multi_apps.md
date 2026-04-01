@@ -7,11 +7,11 @@
 | Metric | Value |
 |--------|-------|
 | Total tasks | 101 |
-| ✅ Verified (official eval) | 3 |
-| ⏳ Pending eval | 60 |
+| ✅ Verified (official eval) | 4 |
+| ⏳ Pending eval | 59 |
 | ❌ Blocked | 20 |
 | 🔲 Not yet attempted | 18 |
-| **Verified score** | **2.845/3 = 94.8%** |
+| **Verified score** | **3.845/4 = 96.1%** |
 
 > Scores are ONLY from OSWorld official evaluator (`desktop_env/evaluators/`).
 
@@ -22,7 +22,7 @@
 | 1 | `2b9493d7` | Force quit LibreOffice Writer | **1.0** | Terminal输入killall -9 soffice.bin |
 | 2 | `2c9fc0de` | Push git changes | **1.0** | Terminal执行git add/commit/push到origin main |
 | 3 | `2fe4b718` | Create animated GIF from video | **0.845** | ffmpeg截取视频转GIF，帧率/尺寸与gold略有差异 |
-| 4 | `3680a5ee` | Merge xlsx/ods columns to CSV | | |
+| 4 | `3680a5ee` | Merge xlsx/ods columns to CSV | **1.0** | openpyxl+odfpy读取两列，csv.writer合并，LO Calc从terminal打开 |
 | 5 | `46407397` | Export charts from docx | | |
 | 6 | `4e9f0faf` | Extract invoice table | | |
 | 7 | `510f64c8` | Start VS Code from terminal | | |
