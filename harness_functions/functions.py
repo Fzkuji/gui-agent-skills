@@ -141,17 +141,58 @@ def _get_frontmost_app() -> str:
 # Functions (docstring = LLM prompt)
 # ═══════════════════════════════════════════
 
-@function(return_type=ObserveResult)
 def observe(session: Session, task: str, screenshot_path: str = None) -> ObserveResult:
-    """You are observing the current screen to understand what's visible.
+    """Observe the current screen state.
 
-Your task: {task}
+    This is a hybrid function: Python gathers data, LLM interprets it.
 
-You will receive:
-1. The frontmost app name
-2. OCR text detected on screen (with coordinates)
-3. UI components detected by GPA-GUI-Detector (with coordinates)
-4. A screenshot for visual understanding
+    1. Python: take screenshot, run OCR, run detector, check memory
+    2. LLM: interpret all the data and answer the task
+    3. Python: parse LLM output into ObserveResult
+    """
+    # Step 1: Python gathers data
+    app_name = _get_frontmost_app()
+
+    if not screenshot_path:
+        screenshot_path = _take_screenshot()
+
+    ocr_results = _run_ocr(screenshot_path)
+    ocr_texts = [f"  '{r.get('label', '')}' at ({r.get('cx', 0)}, {r.get('cy', 0)})"
+                 for r in ocr_results[:50]]  # limit to top 50
+
+    detector_results = _run_detector(screenshot_path)
+    detector_items = [f"  component at ({r.get('cx', 0)}, {r.get('cy', 0)}) conf={r.get('confidence', 0):.2f}"
+                      for r in detector_results[:30]]
+
+    # Check memory for known state
+    state_name, state_conf = None, None
+    try:
+        from app_memory import identify_state_by_components, _detect_visible_components
+        visible = _detect_visible_components(app_name)
+        state_name, state_conf = identify_state_by_components(app_name, visible)
+    except Exception:
+        pass
+
+    # Step 2: LLM interprets
+    prompt = f"""You are observing the current screen to understand what's visible.
+
+## Task
+{task}
+
+## Current app
+{app_name}
+
+## OCR text detected (with coordinates)
+{chr(10).join(ocr_texts) if ocr_texts else '(no text detected)'}
+
+## UI components detected (with coordinates)
+{chr(10).join(detector_items) if detector_items else '(no components detected)'}
+
+## Known state from memory
+{f'State: {state_name} (confidence: {state_conf:.2f})' if state_name else '(unknown state)'}
+
+## Screenshot
+(attached as image)
 
 Based on ALL of this information, determine:
 - What app is open and what page/state it's in
@@ -159,7 +200,51 @@ Based on ALL of this information, determine:
 - Whether the target described in the task is visible
 - If visible, where exactly it is (x, y coordinates from OCR or detector, NOT from your visual estimate)
 
-IMPORTANT: Coordinates must come from OCR or detector results, NEVER from your visual interpretation of the screenshot."""
+IMPORTANT: Coordinates must come from OCR or detector results listed above.
+
+Respond with ONLY a JSON object matching this schema:
+{json.dumps(ObserveResult.model_json_schema(), indent=2)}"""
+
+    # Send with screenshot if session supports images
+    message = {"text": prompt, "images": [screenshot_path]}
+    reply = session.send(message)
+
+    # Step 3: Parse
+    try:
+        result = _parse_observe_result(reply, app_name, screenshot_path, state_name, state_conf)
+    except Exception:
+        # Fallback: construct from raw data
+        result = ObserveResult(
+            app_name=app_name,
+            page_description=reply[:200],
+            visible_text=[r.get("label", "") for r in ocr_results[:10]],
+            interactive_elements=[],
+            state_name=state_name,
+            state_confidence=state_conf,
+            target_visible=False,
+            screenshot_path=screenshot_path,
+        )
+
+    return result
+
+
+def _parse_observe_result(reply: str, app_name: str, screenshot_path: str,
+                          state_name: str = None, state_conf: float = None) -> ObserveResult:
+    """Parse LLM reply into ObserveResult."""
+    text = reply.strip()
+    if text.startswith("```"):
+        lines = text.split("\n")
+        lines = [l for l in lines if not l.strip().startswith("```")]
+        text = "\n".join(lines).strip()
+
+    data = json.loads(text)
+    # Ensure required fields
+    data.setdefault("app_name", app_name)
+    data.setdefault("screenshot_path", screenshot_path)
+    if state_name and not data.get("state_name"):
+        data["state_name"] = state_name
+        data["state_confidence"] = state_conf
+    return ObserveResult(**data)
 
 
 @function(return_type=LearnResult)
@@ -183,32 +268,102 @@ Your job:
 Name components clearly and consistently. Use snake_case. Be specific: "send_message_button" not just "button"."""
 
 
-@function(return_type=ActResult)
 def act(session: Session, action: str, target: str,
         text: str = None, screenshot_path: str = None) -> ActResult:
-    """You are performing a GUI action on the screen.
+    """Perform a GUI action: click, type, shortcut, or scroll.
 
-Action to perform: {action} (click, type, shortcut, scroll)
-Target: {target}
-Text to type (if applicable): {text}
+    Hybrid function:
+    1. Python: screenshot, OCR, detector, template match
+    2. LLM: find target element, decide exact coordinates
+    3. Python: execute click/type, take after-screenshot, diff
+    """
+    # Step 1: Gather data
+    app_name = _get_frontmost_app()
 
-You will receive:
-1. Current screenshot
-2. OCR text with coordinates
-3. Detected UI components with coordinates
-4. Known components from memory (with template match results)
+    if not screenshot_path:
+        screenshot_path = _take_screenshot()
+
+    ocr_results = _run_ocr(screenshot_path)
+    ocr_texts = [f"  '{r.get('label', '')}' at ({r.get('cx', 0)}, {r.get('cy', 0)})"
+                 for r in ocr_results[:50]]
+
+    # Check template matches from memory
+    memory_matches = []
+    try:
+        from app_memory import _detect_visible_components
+        visible = _detect_visible_components(app_name)
+        memory_matches = [f"  '{c['name']}' at ({c.get('cx', 0)}, {c.get('cy', 0)}) conf={c.get('confidence', 0):.2f}"
+                         for c in visible[:20]]
+    except Exception:
+        pass
+
+    # Step 2: LLM decides coordinates
+    prompt = f"""You are performing a GUI action on the screen.
+
+## Action
+{action}: {target}
+{f'Text to type: {text}' if text else ''}
+
+## Current app
+{app_name}
+
+## OCR text detected (with coordinates)
+{chr(10).join(ocr_texts) if ocr_texts else '(no text detected)'}
+
+## Known components from memory (template matched)
+{chr(10).join(memory_matches) if memory_matches else '(no known components matched)'}
+
+## Screenshot
+(attached as image)
 
 Your job:
-1. Find the target element using OCR/detector/template match coordinates
-2. Confirm you've found the right element (not a similarly-named one)
-3. Report the coordinates to click and what action to take
-4. After the action is executed, a new screenshot will be taken
-5. Compare before/after to determine if the action succeeded
+1. Find the target "{target}" in the OCR results or memory matches above
+2. Report the EXACT coordinates from the list above (not estimated from image)
+3. If you can't find it, set success=false
 
-COORDINATE RULE: Use coordinates from OCR, detector, or template match ONLY.
-Never estimate coordinates from the screenshot image.
+Respond with ONLY a JSON object matching this schema:
+{json.dumps(ActResult.model_json_schema(), indent=2)}"""
 
-If the target is not found, report success=false with a clear error message."""
+    message = {"text": prompt, "images": [screenshot_path]}
+    reply = session.send(message)
+
+    # Step 3: Parse and execute
+    try:
+        text_clean = reply.strip()
+        if text_clean.startswith("```"):
+            lines = text_clean.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text_clean = "\n".join(lines).strip()
+        data = json.loads(text_clean)
+        result = ActResult(**data)
+
+        # If LLM found coordinates and action is click, execute it
+        if result.success and result.coordinates and action.lower() in ("click", "single_click"):
+            try:
+                from platform_input import click_at
+                click_at(result.coordinates["x"], result.coordinates["y"])
+
+                # Take after-screenshot and check diff
+                import time
+                time.sleep(0.5)
+                after_path = _take_screenshot()
+                after_ocr = _run_ocr(after_path)
+                before_texts = {r.get("label", "") for r in ocr_results}
+                after_texts = {r.get("label", "") for r in after_ocr}
+                result.screen_changed = before_texts != after_texts
+            except Exception as e:
+                result.success = False
+                result.error = str(e)
+
+        return result
+
+    except Exception as e:
+        return ActResult(
+            action=action,
+            target=target,
+            success=False,
+            error=f"Failed to parse LLM response: {e}",
+        )
 
 
 @function(return_type=RememberResult)
@@ -260,25 +415,53 @@ Verification tiers (try in order):
 Report each state transition as you go."""
 
 
-@function(return_type=VerifyResult)
 def verify(session: Session, expected: str,
            screenshot_path: str = None) -> VerifyResult:
-    """You are verifying whether a previous action succeeded.
+    """Verify whether a previous action succeeded.
 
-Expected outcome: {expected}
+    Hybrid function: Python takes screenshot + OCR, LLM judges.
+    """
+    if not screenshot_path:
+        screenshot_path = _take_screenshot()
 
-You will receive:
-1. A screenshot of the current screen
-2. OCR text detected
-3. Detected UI components
+    ocr_results = _run_ocr(screenshot_path)
+    ocr_texts = [f"  '{r.get('label', '')}'" for r in ocr_results[:30]]
 
-Your job:
-- Look at the screen and determine if the expected outcome is achieved
-- Provide specific evidence (what text you see, what elements are present/absent)
-- Be honest: if it didn't work, say so clearly
+    prompt = f"""You are verifying whether a previous action succeeded.
 
-Examples of verification:
-- "login page loaded" → check if login form fields are visible
-- "message sent" → check if message appears in chat
-- "file saved" → check if save confirmation or file name appears
-- "tab closed" → check if tab is no longer in the tab bar"""
+## Expected outcome
+{expected}
+
+## OCR text currently visible on screen
+{chr(10).join(ocr_texts) if ocr_texts else '(no text detected)'}
+
+## Screenshot
+(attached as image)
+
+Determine if the expected outcome is achieved.
+Provide specific evidence (what text you see, what's present/absent).
+Be honest: if it didn't work, say so clearly.
+
+Respond with ONLY a JSON object matching this schema:
+{json.dumps(VerifyResult.model_json_schema(), indent=2)}"""
+
+    message = {"text": prompt, "images": [screenshot_path]}
+    reply = session.send(message)
+
+    try:
+        text_clean = reply.strip()
+        if text_clean.startswith("```"):
+            lines = text_clean.split("\n")
+            lines = [l for l in lines if not l.strip().startswith("```")]
+            text_clean = "\n".join(lines).strip()
+        data = json.loads(text_clean)
+        data.setdefault("screenshot_path", screenshot_path)
+        return VerifyResult(**data)
+    except Exception:
+        return VerifyResult(
+            expected=expected,
+            actual=reply[:200],
+            verified=False,
+            evidence="Failed to parse LLM response",
+            screenshot_path=screenshot_path,
+        )
