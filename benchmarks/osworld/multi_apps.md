@@ -55,7 +55,7 @@
 | 34 | `c7c1e4c3` | Collect professor emails | **1.0** | 访问3位HKU教授主页获取邮箱，openpyxl填入xlsx的Email列 |
 | 35 | `d1acdb87` | Hong Kong restaurant info | **1.0** | 从Google Maps获取5家HK餐厅的地址/电话/网址，fuzzy match地址+includes电话 |
 | 36 | `deec51c9` | arxiv paper list | | |
-| 37 | `8e116af7` | Update bookkeeping from receipts | | |
+| 37 | `8e116af7` | Update bookkeeping from receipts | **1.0** | 5张收据(grocery/CashApp/soup/bike repair/McDonald's)→OCR读取→GUI输入LO Calc→Balance公式 |
 | 38 | `337d318b` | Cross-check invoices | | |
 | 39 | `82e3c869` | Sort event photos | | |
 | 40 | `185f29bd` | Excel to PDF form | | |
