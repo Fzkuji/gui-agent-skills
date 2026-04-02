@@ -8,6 +8,8 @@ templates/
 # The agent MUST actively save detection results here during all GUI operations.
 # Structure: memory/apps/<appname>/profile.json, components/, pages/
 memory/
+# But keep the harness memory module (code, not runtime data)
+!harness/memory/
 
 # Detection output
 detected/

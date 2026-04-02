@@ -59,8 +59,8 @@ SCRIPTS_DIR = SKILL_DIR / "scripts"
 if str(SCRIPTS_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_DIR))
 
-# Framework import
-_harness_path = str(SKILL_DIR.parent.parent.parent / "Documents" / "LLM Agent Harness" / "llm-agent-harness")
+# Framework import (bundled in-repo, no external dependency)
+_harness_path = str(SKILL_DIR)
 if _harness_path not in sys.path:
     sys.path.insert(0, _harness_path)
 from harness import function, Session
