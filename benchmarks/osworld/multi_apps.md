@@ -1,17 +1,17 @@
 # OSWorld Multi-Apps Domain — GUI Agent Skills Results
 
-> 101 tasks total | Last updated: 2026-04-02 16:57 HKT
+> 101 tasks total | Last updated: 2026-04-02 17:10 HKT
 
 ## Current Status
 
 | Metric | Value |
 |--------|-------|
 | Total tasks | 101 |
-| ✅ Verified (official eval) | 27 |
-| ⏳ Pending eval | 35 |
+| ✅ Verified (official eval) | 28 |
+| ⏳ Pending eval | 34 |
 | ❌ Blocked | 21 |
 | 🔲 Not yet attempted | 18 |
-| **Verified score** | **21.443/27 = 79.4%** |
+| **Verified score** | **22.443/28 = 80.2%** |
 
 > Scores are ONLY from OSWorld official evaluator (`desktop_env/evaluators/`).
 
@@ -53,7 +53,7 @@
 | 32 | `eb303e01` | Insert speaker notes to PPTX | **1.0** | 从notes.docx解析各slide备注，python-pptx插入到PPTX notes，修复Slide4多余空段落 |
 | 33 | `0c825995` | Environmental policy report | **N/A** | ❌ Blocked: 需要Google Drive登录+API credentials，settings只有template |
 | 34 | `c7c1e4c3` | Collect professor emails | **1.0** | 访问3位HKU教授主页获取邮箱，openpyxl填入xlsx的Email列 |
-| 35 | `d1acdb87` | Hong Kong restaurant info | | |
+| 35 | `d1acdb87` | Hong Kong restaurant info | **1.0** | 从Google Maps获取5家HK餐厅的地址/电话/网址，fuzzy match地址+includes电话 |
 | 36 | `deec51c9` | arxiv paper list | | |
 | 37 | `8e116af7` | Update bookkeeping from receipts | | |
 | 38 | `337d318b` | Cross-check invoices | | |
