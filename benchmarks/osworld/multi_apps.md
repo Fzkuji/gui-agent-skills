@@ -1,17 +1,17 @@
 # OSWorld Multi-Apps Domain — GUI Agent Skills Results
 
-> 101 tasks total | Last updated: 2026-04-04 14:40 HKT
+> 101 tasks total | Last updated: 2026-04-04 14:50 HKT
 
 ## Current Status
 
 | Metric | Value |
 |--------|-------|
 | Total tasks | 101 |
-| ✅ Verified (official eval) | 32 |
-| ⏳ Pending eval | 30 |
+| ✅ Verified (official eval) | 33 |
+| ⏳ Pending eval | 29 |
 | ❌ Blocked | 21 |
 | 🔲 Not yet attempted | 18 |
-| **Verified score** | **26.389/32 = 82.5%** |
+| **Verified score** | **27.389/33 = 83.0%** |
 
 > Scores are ONLY from OSWorld official evaluator (`desktop_env/evaluators/`).
 
@@ -59,7 +59,7 @@
 | 38 | `337d318b` | Cross-check invoices | **1.0** | PDF读取发票+银行对账单→对比金额(Staples $500 vs $540)→桌面右键New Folder→拖拽Invoice #243729到problematic |
 | 39 | `82e3c869` | Sort event photos | **1.0** | image tool识别6张seminar照片中presenter(Tao Yu)→文件管理器右键New Folder→Open in Terminal→mv+cp+zip命令 |
 | 40 | `185f29bd` | Excel to PDF form | **0.946** | Excel读7员工数据→PyPDF2填充PDF表单(text fields+√checkmarks)→每人一个PDF文件 |
-| 41 | `869de13e` | Organize desktop files | | |
+| 41 | `869de13e` | Organize desktop files | **1.0** | 桌面14个文件→PDF content analysis识别academic papers→右键Open in Terminal→mv命令分3类(Paper_reading/Projects/Miscellaneous) |
 | 42 | `2c1ebcd7` | Review case study references | | |
 | 43 | `3a93cae4` | Add lecture to timetable | | |
 | 44 | `1f18aa87` | Grammar test answers | | |
