@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 
 from agentic import agentic_function
-from gui_harness.primitives import screenshot, ocr
+from gui_harness.perception import screenshot, ocr
 
 _runtime = None
 

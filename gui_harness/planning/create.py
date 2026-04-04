@@ -55,9 +55,9 @@ Available GUI primitives (already imported, use directly):
     result = template_match.find_template("AppName", "button_name")  # {found, x, y, confidence}
 
     # Existing agentic functions (can call these too)
-    from gui_harness.functions.observe import observe
-    from gui_harness.functions.act import act
-    from gui_harness.functions.verify import verify
+    from gui_harness.planning.observe import observe
+    from gui_harness.planning.act import act
+    from gui_harness.planning.verify import verify
 
 Rules:
 - Coordinates MUST come from OCR/detector output, never estimated
@@ -101,11 +101,11 @@ def create_gui_function(description: str, runtime=None, name: str = None):
     fn = create(description=full_description, runtime=runtime, name=name)
 
     # Inject GUI primitives into the function's namespace so it can use them
-    import gui_harness.primitives.screenshot as _ss
-    import gui_harness.primitives.ocr as _ocr
-    import gui_harness.primitives.detector as _det
-    import gui_harness.primitives.input as _inp
-    import gui_harness.primitives.template_match as _tm
+    import gui_harness.perception.screenshot as _ss
+    import gui_harness.perception.ocr as _ocr
+    import gui_harness.perception.detector as _det
+    import gui_harness.action.input as _inp
+    import gui_harness.perception.template_match as _tm
     import time
 
     # The generated function runs in a sandbox with limited builtins.

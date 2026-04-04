@@ -406,8 +406,8 @@ GUI Agent Harness includes `gui_harness/` — a programmatic Python interface po
 ```bash
 git clone --recurse-submodules https://github.com/Fzkuji/GUI-Agent-Harness.git
 cd GUI-Agent-Harness
-pip install -e ./agentic   # install Agentic Programming (submodule)
-pip install -e .           # install GUI Agent Harness
+pip install -e ./libs/agentic-programming   # install Agentic Programming
+pip install -e .                            # install GUI Agent Harness
 ```
 
 ```python

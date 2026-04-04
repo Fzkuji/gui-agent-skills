@@ -1,4 +1,4 @@
-[submodule "agentic"]
-	path = agentic
+[submodule "libs/agentic-programming"]
+	path = libs/agentic-programming
 	url = https://github.com/Fzkuji/Agentic-Programming.git
 	branch = main

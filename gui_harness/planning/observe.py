@@ -9,8 +9,8 @@ from __future__ import annotations
 import json
 
 from agentic import agentic_function
-from gui_harness.primitives import screenshot, ocr, detector
-from gui_harness.primitives.input import get_frontmost_app
+from gui_harness.perception import screenshot, ocr, detector
+from gui_harness.action.input import get_frontmost_app
 
 _runtime = None
 

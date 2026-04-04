@@ -24,8 +24,8 @@ def patch_for_vm(vm_url: str):
     global _VM_URL
     _VM_URL = vm_url.rstrip("/")
 
-    import gui_harness.primitives.screenshot as _ss
-    import gui_harness.primitives.input as _inp
+    import gui_harness.perception.screenshot as _ss
+    import gui_harness.action.input as _inp
 
     # Patch screenshot
     _ss.take = vm_screenshot

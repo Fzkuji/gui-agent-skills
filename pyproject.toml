@@ -19,3 +19,6 @@ openai = ["openai>=1.30"]
 
 [tool.setuptools.packages.find]
 include = ["gui_harness*"]
+
+# Note: install agentic-programming submodule first:
+#   pip install -e ./libs/agentic-programming

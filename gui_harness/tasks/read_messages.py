@@ -39,8 +39,8 @@ def read_messages(app_name: str, contact: str = None,
     Returns:
         dict with keys: app_name, contact, messages, screenshot_path, success
     """
-    from gui_harness.functions.observe import observe
-    from gui_harness.functions.navigate import navigate
+    from gui_harness.planning.observe import observe
+    from gui_harness.planning.navigate import navigate
 
     rt = runtime or _get_runtime()
 

@@ -4,18 +4,15 @@ import subprocess
 import sys
 import os
 
-# Add parent scripts dir for platform_input import
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 
 def click(x, y):
-    from platform_input import click_at
+    from gui_harness.action.input import click_at
     click_at(int(x), int(y))
     print(f"clicked ({x}, {y})")
 
 
 def double_click(x, y):
-    from platform_input import click_at
+    from gui_harness.action.input import click_at
     click_at(int(x), int(y))
     import time; time.sleep(0.05)
     click_at(int(x), int(y))
@@ -23,25 +20,25 @@ def double_click(x, y):
 
 
 def right_click(x, y):
-    from platform_input import mouse_right_click
+    from gui_harness.action.input import mouse_right_click
     mouse_right_click(int(x), int(y))
     print(f"right_clicked ({x}, {y})")
 
 
 def type_text(text):
-    from platform_input import paste_text
+    from gui_harness.action.input import paste_text
     paste_text(text)
     print(f"typed: {text[:50]}{'...' if len(text) > 50 else ''}")
 
 
 def key(keyname):
-    from platform_input import key_press
+    from gui_harness.action.input import key_press
     key_press(keyname)
     print(f"key: {keyname}")
 
 
 def shortcut(keys):
-    from platform_input import key_combo
+    from gui_harness.action.input import key_combo
     key_list = keys.replace("+", " ").split()
     # Map common names: ctrl→control, cmd→command
     mapping = {"ctrl": "control", "cmd": "command", "alt": "option"}

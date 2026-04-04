@@ -37,7 +37,8 @@ import cv2
 import numpy as np
 
 # Template storage directory
-TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
+# gui_harness/perception/ → gui_harness/ → project_root/templates
+TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates"
 SCREENSHOT_PATH = "/tmp/gui_template_screen.png"
 
 

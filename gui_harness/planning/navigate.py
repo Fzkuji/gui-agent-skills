@@ -49,8 +49,8 @@ def navigate(target_state: str, app_name: str,
             start_state, target_state, path, steps_taken,
             reached_target, current_state
     """
-    from gui_harness.functions.act import act
-    from gui_harness.functions.verify import verify
+    from gui_harness.planning.act import act
+    from gui_harness.planning.verify import verify
 
     rt = runtime or _get_runtime()
 

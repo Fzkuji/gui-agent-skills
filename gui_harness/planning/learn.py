@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 
 from agentic import agentic_function
-from gui_harness.primitives import screenshot, ocr, detector
+from gui_harness.perception import screenshot, ocr, detector
 
 _runtime = None
 

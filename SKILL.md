@@ -47,10 +47,10 @@ patch_for_vm("http://VM_IP:5000")
 
 ```bash
 cd {baseDir}
-git submodule update --init --recursive   # pull Agentic Programming
-pip install -e ./agentic                  # install Agentic Programming
-pip install -e .                          # install GUI Agent Harness
-python3 scripts/activate.py               # detect platform, install deps
+git submodule update --init --recursive          # pull Agentic Programming
+pip install -e ./libs/agentic-programming        # install Agentic Programming
+pip install -e .                                 # install GUI Agent Harness
+python3 -m gui_harness.platform.activate         # detect platform, install deps
 ```
 
 ## Core Rules

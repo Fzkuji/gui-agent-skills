@@ -43,10 +43,10 @@ def send_message(app_name: str, recipient: str, message: str,
     Returns:
         dict with keys: app_name, recipient, message, success, evidence
     """
-    from gui_harness.functions.observe import observe
-    from gui_harness.functions.act import act
-    from gui_harness.functions.navigate import navigate
-    from gui_harness.functions.verify import verify
+    from gui_harness.planning.observe import observe
+    from gui_harness.planning.act import act
+    from gui_harness.planning.navigate import navigate
+    from gui_harness.planning.verify import verify
 
     rt = runtime or _get_runtime()
 

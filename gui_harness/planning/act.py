@@ -10,8 +10,8 @@ import json
 import time
 
 from agentic import agentic_function
-from gui_harness.primitives import screenshot, ocr, detector
-from gui_harness.primitives import input as _input
+from gui_harness.perception import screenshot, ocr, detector
+from gui_harness.action import input as _input
 
 _runtime = None
 

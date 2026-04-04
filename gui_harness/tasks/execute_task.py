@@ -99,8 +99,8 @@ def execute_task(task: str, runtime=None, max_steps: int = 15) -> dict:
     Returns:
         dict: task, success, steps_taken, final_state, history
     """
-    from gui_harness.functions.observe import observe
-    from gui_harness.functions.act import act
+    from gui_harness.planning.observe import observe
+    from gui_harness.planning.act import act
 
     rt = runtime or _get_runtime()
 
@@ -130,11 +130,11 @@ def execute_task(task: str, runtime=None, max_steps: int = 15) -> dict:
 
         # 4. ACT
         if action == "key_press":
-            from gui_harness.primitives import input as _input
+            from gui_harness.action import input as _input
             _input.key_press(plan.get("target", "return"))
             act_result = {"action": "key_press", "target": plan.get("target"), "success": True, "screen_changed": True}
         elif action == "shortcut":
-            from gui_harness.primitives import input as _input
+            from gui_harness.action import input as _input
             keys = [k.strip() for k in plan.get("target", "").split("+")]
             _input.key_combo(*keys)
             act_result = {"action": "shortcut", "target": plan.get("target"), "success": True, "screen_changed": True}

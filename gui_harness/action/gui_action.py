@@ -26,24 +26,19 @@ import sys
 import os
 import argparse
 
-# Add this dir to path for backend imports
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-
 def get_local_backend():
     """Select local backend based on current platform."""
     if sys.platform == "darwin":
-        from backends import mac_local
+        from gui_harness.action.backends import mac_local
         return mac_local
     else:
-        # Linux or other — future: backends/linux_local.py
         raise NotImplementedError(f"Local backend not implemented for: {sys.platform}")
 
 
 def get_remote_backend(remote_url):
     """Select remote backend based on URL protocol."""
     if remote_url.startswith("http"):
-        from backends import http_remote
+        from gui_harness.action.backends import http_remote
         return http_remote
     elif remote_url.startswith("ssh"):
         raise NotImplementedError("SSH remote backend not yet implemented")
