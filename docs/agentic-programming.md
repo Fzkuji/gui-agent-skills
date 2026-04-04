@@ -7,11 +7,15 @@
 ### 1. Install
 
 ```bash
+git clone --recurse-submodules https://github.com/Fzkuji/GUI-Agent-Harness.git
 cd GUI-Agent-Harness
-pip install -e .
+pip install -e ./agentic   # install Agentic Programming (submodule)
+pip install -e .           # install GUI Agent Harness
 ```
 
 That's it. If OpenClaw is installed, everything works out of the box.
+
+> **Already cloned without submodules?** Run: `git submodule update --init --recursive`
 
 ### 2. Use
 

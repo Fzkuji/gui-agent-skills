@@ -404,7 +404,10 @@ GUI Agent Harness includes `gui_harness/` — a programmatic Python interface po
 **Designed for OpenClaw.** If OpenClaw is installed, everything works out of the box:
 
 ```bash
-pip install -e .        # install
+git clone --recurse-submodules https://github.com/Fzkuji/GUI-Agent-Harness.git
+cd GUI-Agent-Harness
+pip install -e ./agentic   # install Agentic Programming (submodule)
+pip install -e .           # install GUI Agent Harness
 ```
 
 ```python
