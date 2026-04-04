@@ -48,6 +48,24 @@ def _vm_exec(command: str, timeout: int = 30) -> dict:
     return r.json()
 
 
+def _vm_exec_script(script: str, timeout: int = 30) -> dict:
+    """Write a Python script to the VM and execute it.
+    
+    More reliable than python3 -c for complex code — avoids
+    shell quoting issues with special characters.
+    """
+    b64 = base64.b64encode(script.encode()).decode()
+    cmd = (
+        f"python3 -c \""
+        f"import base64; "
+        f"s=base64.b64decode('{b64}').decode(); "
+        f"open('/tmp/_vm_script.py','w').write(s); "
+        f"exec(s)"
+        f"\""
+    )
+    return _vm_exec(cmd, timeout=timeout)
+
+
 def vm_screenshot(path: str = "/tmp/gui_agent_screen.png") -> str:
     """Take a screenshot from the VM and save locally."""
     r = requests.get(f"{_VM_URL}/screenshot", timeout=15)
@@ -85,59 +103,141 @@ def vm_key_combo(*keys: str):
 
 
 def vm_type_text(text: str):
-    """Type text via pyautogui on the VM.
-
-    Uses pyautogui.write() for simple alphanumeric text.
-    Falls back to character-by-character input for special characters.
+    """Type text on the VM using xdotool (preferred) or pyautogui fallback.
+    
+    xdotool handles all characters natively.
+    pyautogui fallback types character by character with shift mapping.
     """
     b64 = base64.b64encode(text.encode()).decode()
-    # Use a script that handles special chars properly
-    cmd = (
-        f"python3 -c \""
-        f"import base64,pyautogui,time; "
-        f"t=base64.b64decode('{b64}').decode(); "
-        f"pyautogui.write(t, interval=0.02) if t.isalnum() else "
-        f"[pyautogui.press(c) if c.isalnum() or c in '.-_' else "
-        f"pyautogui.hotkey('shift','9') if c=='(' else "
-        f"pyautogui.hotkey('shift','0') if c==')' else "
-        f"pyautogui.hotkey('shift',';') if c==':' else "
-        f"pyautogui.press('minus') if c=='-' else "
-        f"pyautogui.press('space') if c==' ' else "
-        f"pyautogui.hotkey('shift','1') if c=='!' else "
-        f"pyautogui.hotkey('shift','/') if c=='?' else "
-        f"pyautogui.hotkey('shift','2') if c=='@' else "
-        f"pyautogui.hotkey('shift',\"'\"  ) if c=='\\\"' else "
-        f"pyautogui.press(c) "
-        f"for c in t]"
-        f"\""
+    script = f"""
+import base64, subprocess, sys
+
+text = base64.b64decode('{b64}').decode()
+
+# Try xdotool first (handles all characters)
+try:
+    r = subprocess.run(
+        ['xdotool', 'type', '--clearmodifiers', '--delay', '25', text],
+        capture_output=True, timeout=30
     )
-    _vm_exec(cmd)
+    if r.returncode == 0:
+        sys.exit(0)
+except FileNotFoundError:
+    pass
+
+# Fallback: pyautogui character by character
+import pyautogui, time
+
+SHIFT_MAP = {{
+    '(': '9', ')': '0', ':': ';', '!': '1', '@': '2', '#': '3',
+    '$': '4', '%': '5', '^': '6', '&': '7', '*': '8', '_': '-',
+    '+': '=', '{{': '[', '}}': ']', '|': '\\\\', '~': '`', '<': ',',
+    '>': '.', '?': '/', '"': "'",
+}}
+
+for ch in text:
+    if ch in SHIFT_MAP:
+        pyautogui.hotkey('shift', SHIFT_MAP[ch])
+    elif ch == ' ':
+        pyautogui.press('space')
+    elif ch == '\\n':
+        pyautogui.press('return')
+    elif ch == '\\t':
+        pyautogui.press('tab')
+    elif ch.isupper():
+        pyautogui.hotkey('shift', ch.lower())
+    else:
+        try:
+            pyautogui.press(ch)
+        except Exception:
+            pass  # skip unsupported chars
+    time.sleep(0.02)
+"""
+    _vm_exec_script(script)
     time.sleep(0.3)
 
 
 def vm_paste_text(text: str):
     """Paste text via clipboard on the VM.
-
-    Writes text to a temp file, pipes to xclip/xsel if available,
-    otherwise falls back to pyperclip or character-by-character typing.
+    
+    Tries xclip → xsel → xdotool type → pyautogui fallback.
     """
     b64 = base64.b64encode(text.encode()).decode()
-    # Try multiple clipboard methods, fall back to typing
-    cmd = (
-        f"python3 -c \""
-        f"import base64,subprocess,os,pyautogui,time; "
-        f"t=base64.b64decode('{b64}').decode(); "
-        f"f='/tmp/_vm_clip.txt'; "
-        f"open(f,'w').write(t); "
-        f"ok=False; "
-        f"[ok:=True for _ in [0] if not ok and subprocess.run('xclip -selection clipboard < '+f,shell=True).returncode==0]; "
-        f"[ok:=True for _ in [0] if not ok and subprocess.run('xsel --clipboard --input < '+f,shell=True).returncode==0]; "
-        f"exec('try:\\n import pyperclip; pyperclip.copy(t); ok=True\\nexcept: pass') if not ok else None; "
-        f"pyautogui.hotkey('ctrl','v') if ok else None; "
-        f"time.sleep(0.3)"
-        f"\""
+    script = f"""
+import base64, subprocess, sys, time
+
+text = base64.b64decode('{b64}').decode()
+
+# Write to temp file for clipboard tools
+with open('/tmp/_vm_clip.txt', 'w') as f:
+    f.write(text)
+
+# Try xclip
+try:
+    r = subprocess.run(
+        'xclip -selection clipboard < /tmp/_vm_clip.txt',
+        shell=True, capture_output=True, timeout=5
     )
-    result = _vm_exec(cmd)
-    # If clipboard paste failed, fall back to typing
-    if result.get("error"):
-        vm_type_text(text)
+    if r.returncode == 0:
+        import pyautogui
+        pyautogui.hotkey('ctrl', 'v')
+        time.sleep(0.3)
+        sys.exit(0)
+except Exception:
+    pass
+
+# Try xsel
+try:
+    r = subprocess.run(
+        'xsel --clipboard --input < /tmp/_vm_clip.txt',
+        shell=True, capture_output=True, timeout=5
+    )
+    if r.returncode == 0:
+        import pyautogui
+        pyautogui.hotkey('ctrl', 'v')
+        time.sleep(0.3)
+        sys.exit(0)
+except Exception:
+    pass
+
+# Try xdotool type (handles unicode)
+try:
+    r = subprocess.run(
+        ['xdotool', 'type', '--clearmodifiers', '--delay', '25', text],
+        capture_output=True, timeout=30
+    )
+    if r.returncode == 0:
+        sys.exit(0)
+except FileNotFoundError:
+    pass
+
+# Last resort: pyautogui character by character
+import pyautogui
+
+SHIFT_MAP = {{
+    '(': '9', ')': '0', ':': ';', '!': '1', '@': '2', '#': '3',
+    '$': '4', '%': '5', '^': '6', '&': '7', '*': '8', '_': '-',
+    '+': '=', '{{': '[', '}}': ']', '|': '\\\\', '~': '`', '<': ',',
+    '>': '.', '?': '/', '"': "'",
+}}
+
+for ch in text:
+    if ch in SHIFT_MAP:
+        pyautogui.hotkey('shift', SHIFT_MAP[ch])
+    elif ch == ' ':
+        pyautogui.press('space')
+    elif ch == '\\n':
+        pyautogui.press('return')
+    elif ch == '\\t':
+        pyautogui.press('tab')
+    elif ch.isupper():
+        pyautogui.hotkey('shift', ch.lower())
+    else:
+        try:
+            pyautogui.press(ch)
+        except Exception:
+            pass
+    time.sleep(0.02)
+"""
+    _vm_exec_script(script)
+    time.sleep(0.3)

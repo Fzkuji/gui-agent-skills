@@ -108,9 +108,20 @@ Detected UI elements:
             elif action.lower() == "right_click":
                 _input.mouse_right_click(cx, cy)
             elif action.lower() == "type":
+                # Click to select the cell/field first
                 _input.mouse_click(cx, cy)
+                time.sleep(0.5)
+                # Select all existing content and replace
+                try:
+                    _input.key_combo("ctrl", "a")
+                except Exception:
+                    pass
+                time.sleep(0.2)
+                # Type the new text (replaces selection)
+                _input.type_text(text or "")
                 time.sleep(0.3)
-                _input.paste_text(text or "")
+                # Confirm with Enter (important for spreadsheet cells)
+                _input.key_press("return")
             elif action.lower() == "shortcut":
                 keys = [k.strip() for k in target.split("+")]
                 _input.key_combo(*keys)
