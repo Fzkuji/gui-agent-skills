@@ -131,7 +131,7 @@ class GUIRuntime(Runtime):
             from agentic.providers.openai import OpenAIRuntime
             self._inner = OpenAIRuntime(
                 model=use_model,
-                system_prompt=use_system,
+                system=use_system,
                 max_tokens=max_tokens,
                 **kwargs,
             )
