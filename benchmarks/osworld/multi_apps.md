@@ -61,9 +61,9 @@
 | 40 | `185f29bd` | Excel to PDF form | **0.946** | Excel读7员工数据→PyPDF2填充PDF表单(text fields+√checkmarks)→每人一个PDF文件 |
 | 41 | `869de13e` | Organize desktop files | **1.0** | 桌面14个文件→PDF content analysis识别academic papers→右键Open in Terminal→mv命令分3类(Paper_reading/Projects/Miscellaneous) |
 | 42 | `2c1ebcd7` | Review case study references | **0.883** | 下载case study.docx→分析9条引用→修正APA 7格式(DOI格式/Retrieved/年份括号/去ISSN/去引号)→python-docx写回→LO Writer打开 |
-| 43 | `3a93cae4` | Add lecture to timetable | | |
-| 44 | `1f18aa87` | Grammar test answers | | |
-| 45 | `26150609` | Fix Snake game code | | |
+| 43 | `3a93cae4` | Add lecture to timetable | **1.0** | GUI操作：OCR定位Wed/12:00单元格→pyautogui输入"Lec 2 (12:00-14:00)"→Ctrl+S保存 |
+| 44 | `1f18aa87` | Grammar test answers | **1.0** | Phase 0-5框架：general_action读取3个test文件→分析答案→写入Answer.docx。2步完成，72秒 |
+| 45 | `26150609` | Fix Snake game code | **pending** | general_action读代码→定位bug(food.py __init__坐标未对齐网格)→修复。2步140秒。待official eval |
 | 46 | `9219480b` | Fix Tetris game code | | |
 | 47 | `881deb30` | Faculty job info (web) | | |
 | 48 | `7e287123` | GRF funding info (web) | | |
