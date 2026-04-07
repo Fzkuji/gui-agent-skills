@@ -290,6 +290,19 @@ def _execute_on_vm(code):
 # Agent session initialization
 # ═══════════════════════════════════════════
 
+def _kill_stale_processes():
+    """Kill any lingering claude stream-json processes from previous runs."""
+    import subprocess as _sp
+    try:
+        result = _sp.run(
+            ["pkill", "-f", "claude.*stream-json"],
+            capture_output=True, timeout=5,
+        )
+    except Exception:
+        pass  # Best effort
+    time.sleep(0.5)
+
+
 def _build_system_context(task, app_name):
     """Build the system context string for the agent session.
 
@@ -334,7 +347,9 @@ def execute_task(task: str, runtime=None, max_steps: int = 30, app_name: str = "
     """
     rt = runtime or _get_runtime()
 
-    # Reset runtime to ensure clean session (no leftover context from previous tasks)
+    # Kill ALL lingering claude stream-json processes, then reset runtime
+    # This ensures a truly clean session with no leftover context
+    _kill_stale_processes()
     if hasattr(rt, '_inner') and hasattr(rt._inner, 'reset'):
         rt._inner.reset()
 
