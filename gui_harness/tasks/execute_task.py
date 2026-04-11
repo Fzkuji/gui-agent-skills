@@ -839,7 +839,7 @@ def _execute_task_loop(task, rt, max_steps, app_name):
         time.sleep(0.5)
 
         # After scroll/hotkey on browser, extract visible data from screen
-        if action in ("scroll", "hotkey") and result.get("success"):
+        if action_name in ("scroll", "hotkey") and result.get("success"):
             task_lower = task.lower()
             # Check if the task involves web data extraction
             web_data_keywords = ["imdb", "website", "web page", "browser", "top 250", "top 30",
@@ -860,7 +860,7 @@ def _execute_task_loop(task, rt, max_steps, app_name):
 
         # Record state transition (only for GUI actions that change state)
         new_state = current_state
-        if action in GUI_ACTIONS:
+        if action_name in {"click", "double_click", "right_click", "drag"}:
             t0 = time.time()
             after_img = _screenshot.take("/tmp/gui_agent_after.png")
             new_state, _ = identify_state(app_name, after_img)
@@ -869,7 +869,7 @@ def _execute_task_loop(task, rt, max_steps, app_name):
             if result.get("success") and current_state is not None:
                 record_transition(
                     app_name=app_name, from_state=current_state,
-                    action=action, action_target=plan.get("target", ""),
+                    action=action_name, action_target=plan.get("target", ""),
                     to_state=new_state,
                 )
 
@@ -877,7 +877,7 @@ def _execute_task_loop(task, rt, max_steps, app_name):
 
         history.append({
             "step": step,
-            "action": action,
+            "action": action_name,
             "target": plan.get("target", ""),
             "code": plan.get("code", ""),
             "output": result.get("output", ""),

@@ -127,10 +127,12 @@ def run_task(task_config: dict, vm_ip: str, max_steps: int) -> dict:
     time.sleep(1)
 
     # Clean cache to prevent reading stale files from previous tasks
+    # But ensure the directory exists for setup downloads
     import shutil
     cache_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "cache")
     if os.path.isdir(cache_dir):
         shutil.rmtree(cache_dir, ignore_errors=True)
+    os.makedirs(cache_dir, exist_ok=True)
 
     from gui_harness.adapters.vm_adapter import patch_for_vm
     patch_for_vm(f"http://{vm_ip}:{VM_PORT}")
