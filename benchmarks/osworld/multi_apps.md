@@ -99,14 +99,14 @@
 | 78 | `ce2b64a2` | Identify mountain photos | **1.0** (Opus) | ✅ 识别3张山照片(Kilimanjaro/Everest/华山)并重命名。7步。 |
 | 79 | `3f05f3b9` | MP3 metadata editing | **1.0** (Opus) | ✅ MP3元数据填充。2步。 |
 | 80 | `e1fc0df3` | Install LanguageTool extension | **1.0** | 安装LanguageTool.oxt + OpenJDK，15步948秒 |
-| 81 | `f8369178` | Install Orchis GNOME theme | **0.0** | ❌ gnome-look.org下载主题失败，15步280秒 |
+| 81 | `f8369178` | Install Orchis GNOME theme | **1.0** | ✅ prev_result反馈机制：GUI下载失败后自动切换命令行git clone安装主题 |
 | 82 | `778efd0a` | Extract video audio for slides | **0.996** | ffmpeg提取音频+python-pptx插入slide，14步1144秒 |
 | 83 | `47f7c0ce` | Extract video frame for slide bg | **0.805** | ffmpeg提取帧+python-pptx设背景，3步152秒 |
 | 84 | `c2751594` | Export image from email→wallpaper | **1.0** | 从Thunderbird邮件提取docx中图片设为壁纸，5步294秒 |
 | 85 | `788b3701` | Track GitHub short tale | **1.0** | 对比GitHub和本地文件找缺失章节，2步54秒 |
-| 86 | `48c46dc7` | Setup workspace | **0.0** | ❌ 打开了terminal+Chrome但evaluator未通过，10步281秒 |
-| 87 | `42d25c08` | TXT to EPUB novel | **0.0** | ❌ 转换成功但evaluator未通过，3步132秒 |
-| 88 | `e8172110` | GIMP pixel art extraction | **0.0** | ❌ 提取pixel art但evaluator未通过，7步241秒 |
+| 86 | `48c46dc7` | Setup workspace | **1.0** | ✅ done验证机制：首次done被拦截补开Nautilus+Python docs tab，360秒 |
+| 87 | `42d25c08` | TXT to EPUB novel | **0.0** | ❌ txt2epub转换成功但保存路径不对：agent从正文提取标题命名为"Passing through the book.epub"，evaluator期望"Pass Through.epub"（文件夹名） |
+| 88 | `e8172110` | GIMP pixel art extraction | **1.0** | ✅ PRESERVE FORMAT指导+CLI session：去背景不crop，保持1280×1280，SSIM=0.967，3步 |
 | 89 | `42f4d1c7` | VS Code + GIMP scripting | **0.0** | ❌ 安装lisp扩展失败，15步696秒 |
 | 90 | `3c8f201a` | Download + compress image | **1.0** | 下载+压缩图片到600KB以下，15步2067秒 |
 | 91 | `d68204bf` | Divide image into sections | | |

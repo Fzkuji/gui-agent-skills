@@ -82,9 +82,11 @@ def setup_vm(vm_ip: str, task_config: dict):
         )
         # Create google-chrome wrapper pointing to snap chromium (needs sudo)
         # OSWorld's _launch_setup will add --proxy-server flag automatically
+        # Include --remote-debugging-port=1337 so evaluator can connect via
+        # socat (9222→1337) to check open tabs, regardless of how agent launches Chrome.
         _exec(
             'echo password | sudo -S bash -c \''
-            'printf "#!/bin/bash\\nexec /snap/bin/chromium \\"\\$@\\"\\n"'
+            'printf "#!/bin/bash\\nexec /snap/bin/chromium --remote-debugging-port=1337 \\"\\$@\\"\\n"'
             ' > /usr/local/bin/google-chrome && chmod +x /usr/local/bin/google-chrome\''
         )
         print("  Chromium proxy wrapper installed.")
@@ -239,7 +241,7 @@ def print_result(result: dict, task_num: int, score: float = None):
     print()
     print("=" * 60)
     print(f"Task {task_num}: {'SUCCESS' if result['success'] else 'FAILED'}")
-    print(f"Steps: {result['steps_taken']} | Total: {result.get('total_time', '?')}s")
+    print(f"Steps: {result.get('steps_taken', '?')} | Total: {result.get('total_time', '?')}s")
     if score is not None:
         if score < 0:
             print(f"Score: ERROR (evaluator failed)")
@@ -278,6 +280,31 @@ def main():
         setup_vm(args.vm, task_config)
 
     result = run_task(task_config, args.vm, args.max_steps)
+
+    # Diagnose Chrome debugging port before evaluation
+    vm_url = f"http://{args.vm}:5000"
+    try:
+        diag_exec = lambda cmd: json.loads(urllib.request.urlopen(
+            urllib.request.Request(
+                f"{vm_url}/execute",
+                data=json.dumps({"command": cmd, "shell": True}).encode(),
+                headers={"Content-Type": "application/json"},
+            ), timeout=15
+        ).read())
+        print("\n[diag] Checking CDP ports...")
+        for cmd in [
+            "ss -tlnp | grep -E '1337|9222'",
+            "pgrep -a socat",
+            "pgrep -a chromium | head -3",
+            "curl -s http://localhost:1337/json/version 2>&1 | head -3",
+            "curl -s http://localhost:9222/json/version 2>&1 | head -3",
+        ]:
+            r = diag_exec(cmd)
+            out = r.get("output", "").strip()
+            print(f"  $ {cmd}")
+            print(f"    {out[:200] if out else '(empty)'}")
+    except Exception as e:
+        print(f"[diag] Failed: {e}")
 
     # Run official evaluator before next task reverts the VM
     score = None
