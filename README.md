@@ -147,21 +147,29 @@ gui-agent --provider claude-code --model opus "Send hello in WeChat"
 
 ### Use as LLM skill
 
-GUI Agent Harness is designed to be called by an LLM as a tool. After installation (`pip install`), register it as a skill so your LLM knows when and how to use it:
+GUI Agent Harness is designed to be called by an LLM as a tool. After `pip install`, register the project as a skill so your LLM can discover and use it.
 
-**Claude Code:**
+LLM skill systems typically scan a skills directory for subdirectories containing a `SKILL.md` file. To register GUI Agent Harness, copy or symlink the project into your LLM's skills directory:
 
 ```bash
-# Add the project directory to Claude Code's skill search path
-# Claude Code auto-discovers SKILL.md files in configured directories
+# Example: copy into OpenClaw's skills directory
+cp -r GUI-Agent-Harness ~/.openclaw/skills/gui-agent
+
+# Or symlink (recommended — stays in sync with git)
+ln -s /path/to/GUI-Agent-Harness ~/.openclaw/skills/gui-agent
+```
+
+**Claude Code** auto-discovers `SKILL.md` from the current working directory or configured skill paths:
+
+```bash
+# Option 1: work from the project directory (auto-discovered)
+cd /path/to/GUI-Agent-Harness
+
+# Option 2: add to Claude Code's skill search paths
 claude config set skillPaths '["<path-to-GUI-Agent-Harness>"]'
 ```
 
-Or simply work from the project directory — Claude Code reads `SKILL.md` automatically when it's in the current working directory or any parent.
-
-**Other LLMs (OpenClaw, custom agents):**
-
-Copy or symlink [SKILL.md](SKILL.md) into your LLM's skill directory. The skill file tells the LLM when to use `gui-agent` and how to call it — no other configuration needed.
+Once registered, the LLM reads `SKILL.md` and knows when and how to call `gui-agent` — no further configuration needed.
 
 ## CLI Options
 
