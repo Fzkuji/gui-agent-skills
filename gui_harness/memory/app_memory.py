@@ -82,13 +82,22 @@ def save_meta(app_dir, meta):
         json.dump(meta, f, indent=2, ensure_ascii=False)
 
 
+def _safe_load_json(path, label="file"):
+    """Load a JSON file with corruption recovery. Returns dict on failure."""
+    if not path.exists():
+        return {}
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, ValueError) as e:
+        print(f"  [memory] {label} corrupt ({e}), rebuilding: {path}", file=sys.stderr)
+        path.unlink(missing_ok=True)
+        return {}
+
+
 def load_components(app_dir):
     """Load components.json from app/site directory. Returns dict."""
-    comp_path = Path(app_dir) / "components.json"
-    if comp_path.exists():
-        with open(comp_path) as f:
-            return json.load(f)
-    return {}
+    return _safe_load_json(Path(app_dir) / "components.json", "components.json")
 
 
 def save_components(app_dir, components):
@@ -100,11 +109,7 @@ def save_components(app_dir, components):
 
 def load_states(app_dir):
     """Load states.json from app/site directory. Returns dict."""
-    states_path = Path(app_dir) / "states.json"
-    if states_path.exists():
-        with open(states_path) as f:
-            return json.load(f)
-    return {}
+    return _safe_load_json(Path(app_dir) / "states.json", "states.json")
 
 
 def save_states(app_dir, states):
@@ -116,11 +121,7 @@ def save_states(app_dir, states):
 
 def load_transitions(app_dir):
     """Load transitions.json from app/site directory. Returns dict (key=from|action|to)."""
-    trans_path = Path(app_dir) / "transitions.json"
-    if trans_path.exists():
-        with open(trans_path) as f:
-            return json.load(f)
-    return {}
+    return _safe_load_json(Path(app_dir) / "transitions.json", "transitions.json")
 
 
 def save_transitions(app_dir, transitions):
