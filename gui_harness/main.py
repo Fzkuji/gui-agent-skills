@@ -17,6 +17,9 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from openprogram import agentic_function
+from openprogram.providers import create_runtime
+
+from gui_harness.constants import GUI_SYSTEM_PROMPT
 
 
 # ═══════════════════════════════════════════
@@ -26,6 +29,7 @@ from openprogram import agentic_function
 @agentic_function(
     compress=True,
     summarize={"siblings": -1},
+    system=GUI_SYSTEM_PROMPT,
     input={
         "task": {
             "source": "llm",
@@ -186,16 +190,12 @@ def main():
         patch_for_vm(args.vm)
         print(f"VM mode: {args.vm}")
 
-    # Runtime
-    from gui_harness.runtime import GUIRuntime
+    # Runtime — delegate auto-detection to openprogram.providers
     kwargs = {}
-    if args.provider:
-        kwargs["provider"] = args.provider
     if args.model:
         kwargs["model"] = args.model
-
-    runtime = GUIRuntime(**kwargs)
-    print(f"Provider: {runtime.provider}")
+    runtime = create_runtime(provider=args.provider or "auto", **kwargs)
+    print(f"Runtime: {type(runtime).__name__}")
     print(f"Task: {args.task}")
     print(f"Max steps: {args.max_steps}")
     print()

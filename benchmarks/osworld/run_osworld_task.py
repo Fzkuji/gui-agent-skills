@@ -184,9 +184,9 @@ def run_task(task_config: dict, vm_ip: str, max_steps: int) -> dict:
             print(f"Warning: could not activate Chrome: {e}")
 
     from gui_harness.tasks.execute_task import execute_task
-    from gui_harness.runtime import GUIRuntime
+    from openprogram.providers import create_runtime
 
-    runtime = GUIRuntime(provider="claude-code", model="opus")
+    runtime = create_runtime(provider="claude-code", model="opus")
 
     related_apps = task_config.get("related_apps") or ["desktop"]
     app_name = related_apps[0] if related_apps else "desktop"
